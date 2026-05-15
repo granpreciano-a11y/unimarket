@@ -137,6 +137,8 @@ onAuthStateChanged(auth, async user => {
     const displayName = user.displayName || user.email.split('@')[0];
     document.querySelectorAll('.current-user-name').forEach(el => el.textContent = displayName);
     document.getElementById('loginOverlay')?.classList.remove('open');
+    const adminBtn = document.getElementById('adminTabBtn');
+    if (adminBtn) adminBtn.style.display = user.email === 'granpreciano@gmail.com' ? '' : 'none';
     initRealtimeListeners();
     showToast(`👋 Bienvenido, ${displayName}`);
     // Verificar si tiene WA guardado; si no, pedirlo
@@ -812,7 +814,7 @@ select.pf-input{cursor:pointer}
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchView('user',this)">🛍️ Marketplace</button>
     <button class="nav-tab" onclick="openDMInbox()">💬 Mensajes <span class="dm-nav-badge" id="dmNavBadge">0</span></button>
-    <button class="nav-tab" onclick="switchView('admin',this)">⚙️ Admin Panel <span class="nav-badge" id="adminBadge">3</span></button>
+    <button class="nav-tab" id="adminTabBtn" style="display:none" onclick="switchView('admin',this)">⚙️ Admin Panel <span class="nav-badge" id="adminBadge">3</span></button>
   </div>
   <div class="nav-user">
     <div class="avatar">🎓</div>
