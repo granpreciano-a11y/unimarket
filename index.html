@@ -1,0 +1,3425 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniMarket</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script type="module">
+// ╔══════════════════════════════════════════════════════════╗
+// ║          FIREBASE — Módulo central de UniMarket          ║
+// ║  Para añadir más colecciones en el futuro, agregar       ║
+// ║  listeners aquí y exponer funciones en window.DB         ║
+// ╚══════════════════════════════════════════════════════════╝
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, doc,
+  addDoc, deleteDoc, updateDoc, setDoc,
+  getDocs, query, where,
+  onSnapshot, orderBy, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  updateProfile
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+// ── Config ──────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCLYhEFSYDhV-OF8sDIXxcn4Xs-669fIAU",
+  authDomain: "unimarket-88c18.firebaseapp.com",
+  projectId: "unimarket-88c18",
+  storageBucket: "unimarket-88c18.firebasestorage.app",
+  messagingSenderId: "853305165245",
+  appId: "1:853305165245:web:450f30027c9e4710fcbed4"
+};
+
+const app   = initializeApp(firebaseConfig);
+const db    = getFirestore(app);
+const auth  = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+
+// ── Estado del usuario actual ────────────────────────────────
+let currentUser = null;
+
+// ── Listeners en tiempo real ─────────────────────────────────
+function initRealtimeListeners() {
+  // 1. PRODUCTOS — cualquier cambio se refleja al instante
+  const qProds = query(collection(db,'products'), orderBy('createdAt','desc'));
+  onSnapshot(qProds, snap => {
+    products.length = 0; // vaciar sin romper referencia
+    snap.forEach(d => {
+      const data = d.data();
+      products.push({ firestoreId: d.id, ...data });
+    });
+    renderProducts();
+    renderAdminTables();
+  });
+
+  // 2. COMPRAS
+  const qPurch = query(collection(db,'purchases'), orderBy('createdAt','desc'));
+  onSnapshot(qPurch, snap => {
+    purchases.length = 0;
+    snap.forEach(d => purchases.push({ firestoreId: d.id, ...d.data() }));
+    renderAdminTables();
+  });
+
+  // 3. COMISIONES
+  const qComm = query(collection(db,'commissions'), orderBy('createdAt','desc'));
+  onSnapshot(qComm, snap => {
+    commissions.length = 0;
+    snap.forEach(d => commissions.push({ firestoreId: d.id, ...d.data() }));
+    updateAdminBadge();
+    renderAdminTables();
+  });
+
+  // 4. NOTIFS PLAN B
+  const qPlanB = query(collection(db,'planBNotifs'), orderBy('createdAt','desc'));
+  onSnapshot(qPlanB, snap => {
+    adminPlanBNotifs.length = 0;
+    snap.forEach(d => adminPlanBNotifs.push({ firestoreId: d.id, ...d.data() }));
+    updateAdminBadge();
+    renderAdminTables();
+  });
+
+  // 6. RAFFLE TICKETS
+  const qRaffle = query(collection(db,'raffleTickets'), orderBy('createdAt','desc'));
+  onSnapshot(qRaffle, snap => {
+    raffleTickets.length = 0;
+    snap.forEach(d => raffleTickets.push({ firestoreId: d.id, ...d.data() }));
+    const el = document.getElementById('raffleTickets');
+    if (el) el.textContent = raffleTickets.length;
+    renderAdminTables();
+    renderTickets();
+  });
+
+  // 7. COMISIONES COBRADAS
+  const qPaidComm = query(collection(db,'paidCommissions'), orderBy('createdAt','desc'));
+  onSnapshot(qPaidComm, snap => {
+    paidCommissions.length = 0;
+    snap.forEach(d => paidCommissions.push({ firestoreId: d.id, ...d.data() }));
+    renderAdminTables();
+  });
+
+  // 8. CALIFICACIONES
+  const qRatings = query(collection(db,'ratings'), orderBy('createdAt','desc'));
+  onSnapshot(qRatings, snap => {
+    ratings.length = 0;
+    snap.forEach(d => ratings.push({ firestoreId: d.id, ...d.data() }));
+    renderProducts();
+  });
+
+  // 9. DM — iniciar listener de inbox (badge y lista)
+  setTimeout(() => { if (window.initDMListener) window.initDMListener(); }, 300);
+}
+
+// ── Handle redirect result (Google login vía redirect) ────────
+getRedirectResult(auth).then(result => {
+  if (result && result.user) {
+    // Manejado automáticamente por onAuthStateChanged abajo
+  }
+}).catch(e => {
+  console.error('Redirect result error:', e);
+});
+
+// ── Auth state ────────────────────────────────────────────────
+onAuthStateChanged(auth, async user => {
+  if (user) {
+    currentUser = user;
+    const displayName = user.displayName || user.email.split('@')[0];
+    document.querySelectorAll('.current-user-name').forEach(el => el.textContent = displayName);
+    document.getElementById('loginOverlay')?.classList.remove('open');
+    initRealtimeListeners();
+    showToast(`👋 Bienvenido, ${displayName}`);
+    // Verificar si tiene WA guardado; si no, pedirlo
+    try {
+      const ref = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      const snap = await ref.getDoc(ref.doc(db, 'users', user.uid));
+      if (!snap.exists() || !snap.data().wa) {
+        setTimeout(() => { if (window.showWAPrompt) window.showWAPrompt(user.uid); }, 1500);
+      }
+    } catch(e) { /* silencioso */ }
+  } else {
+    currentUser = null;
+    document.getElementById('loginOverlay')?.classList.add('open');
+  }
+});
+
+// ── API pública — window.DB ──────────────────────────────────
+// Todas las operaciones de escritura pasan por aquí.
+// Para añadir una nueva colección en el futuro, solo agrega
+// un método nuevo en este objeto.
+window.DB = {
+
+  // ── Productos ──────────────────────────────────────────────
+  async addProduct(prodData) {
+    return await addDoc(collection(db,'products'), {
+      ...prodData,
+      createdAt: serverTimestamp()
+    });
+  },
+  async removeProduct(firestoreId) {
+    await deleteDoc(doc(db,'products', firestoreId));
+  },
+  async updateProduct(firestoreId, data) {
+    await updateDoc(doc(db,'products', firestoreId), data);
+  },
+
+  // ── Compras ────────────────────────────────────────────────
+  async addPurchase(purchData) {
+    return await addDoc(collection(db,'purchases'), {
+      ...purchData,
+      createdAt: serverTimestamp()
+    });
+  },
+
+  // ── Comisiones ─────────────────────────────────────────────
+  async addCommission(commData) {
+    return await addDoc(collection(db,'commissions'), {
+      ...commData,
+      createdAt: serverTimestamp()
+    });
+  },
+  async markCommissionPaid(firestoreId) {
+    await deleteDoc(doc(db,'commissions', firestoreId));
+  },
+  async updateCommission(firestoreId, data) {
+    await updateDoc(doc(db,'commissions', firestoreId), data);
+  },
+  async removeCommission(firestoreId) {
+    await deleteDoc(doc(db,'commissions', firestoreId));
+  },
+  async addPaidCommission(commData) {
+    return await addDoc(collection(db,'paidCommissions'), {
+      ...commData,
+      createdAt: serverTimestamp()
+    });
+  },
+  async updatePurchaseCommStatus(seller, product) {
+    // Buscar compras de ese vendedor con commStatus pending y marcar la del producto como paid
+    const qSnap = await getDocs(query(
+      collection(db,'purchases'),
+      where('seller','==',seller),
+      where('commStatus','==','pending')
+    ));
+    for (const docSnap of qSnap.docs) {
+      const data = docSnap.data();
+      if (data.product && data.product.startsWith(product.substring(0,15))) {
+        await updateDoc(doc(db,'purchases', docSnap.id), { commStatus: 'paid' });
+        break;
+      }
+    }
+  },
+
+  // ── Plan B Notifs ──────────────────────────────────────────
+  async addPlanBNotif(notifData) {
+    return await addDoc(collection(db,'planBNotifs'), {
+      ...notifData,
+      createdAt: serverTimestamp()
+    });
+  },
+  async removePlanBNotif(firestoreId) {
+    await deleteDoc(doc(db,'planBNotifs', firestoreId));
+  },
+
+  // ── Raffle Tickets ─────────────────────────────────────────
+  async addRaffleTicket(ticketData) {
+    return await addDoc(collection(db,'raffleTickets'), {
+      ...ticketData,
+      createdAt: serverTimestamp()
+    });
+  },
+
+  // ── Calificaciones ─────────────────────────────────────────
+  async addRating(ratingData) {
+    return await addDoc(collection(db,'ratings'), {
+      ...ratingData,
+      createdAt: serverTimestamp()
+    });
+  },
+  async hasRated(raterUid, sellerId) {
+    const snap = await getDocs(query(
+      collection(db,'ratings'),
+      where('raterUid','==',raterUid),
+      where('sellerId','==',sellerId)
+    ));
+    return !snap.empty;
+  },
+
+  // ── Storage — imágenes guardadas como base64 en Firestore ──
+  // (Firebase Storage requiere plan Blaze; usamos base64 gratis)
+  compressImage(base64DataUrl, maxWidth = 400) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ratio = Math.min(maxWidth / img.width, 1);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = base64DataUrl;
+    });
+  },
+
+  // ── Usuarios (perfil con WA) ────────────────────────────────
+  async saveUserProfile(uid, data) {
+    await setDoc(doc(db,'users', uid), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  },
+  async getUserProfile(uid) {
+    const { getDoc: _getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const snap = await _getDoc(doc(db, 'users', uid));
+    return snap.exists() ? snap.data() : null;
+  },
+  async clearRaffleTickets() {
+    const snap = await getDocs(collection(db,'raffleTickets'));
+    const dels = snap.docs.map(d => deleteDoc(doc(db,'raffleTickets', d.id)));
+    await Promise.all(dels);
+  },
+
+  // ── Mensajes directos ──────────────────────────────────────
+  // threadId = [buyerUid, sellerUid].sort().join('_')  →  único por par
+  async sendMessage(threadId, msgData) {
+    return await addDoc(collection(db, 'threads', threadId, 'messages'), {
+      ...msgData,
+      createdAt: serverTimestamp()
+    });
+  },
+  async ensureThread(threadId, meta) {
+    const ref = doc(db, 'threads', threadId);
+    try {
+      await updateDoc(ref, { lastMsg: meta.text || '', lastAt: serverTimestamp(), unread_buyer: meta.unread_buyer ?? 0, unread_seller: meta.unread_seller ?? 0 });
+    } catch {
+      await setDoc(ref, { ...meta, lastMsg: meta.text || '', lastAt: serverTimestamp(), createdAt: serverTimestamp() });
+    }
+  },
+  listenMessages(threadId, callback) {
+    const q = query(collection(db, 'threads', threadId, 'messages'), orderBy('createdAt', 'asc'));
+    return onSnapshot(q, snap => {
+      const msgs = [];
+      snap.forEach(d => msgs.push({ id: d.id, ...d.data() }));
+      callback(msgs);
+    });
+  },
+  listenMyThreads(uid, callback) {
+    // Threads donde el usuario es comprador O vendedor
+    const qBuyer  = query(collection(db,'threads'), where('buyerUid','==',uid));
+    const qSeller = query(collection(db,'threads'), where('sellerUid','==',uid));
+    let buyerThreads = [], sellerThreads = [];
+    const merge = () => {
+      const all = [...buyerThreads, ...sellerThreads];
+      all.sort((a,b) => (b.lastAt?.seconds||0) - (a.lastAt?.seconds||0));
+      callback(all);
+    };
+    const u1 = onSnapshot(qBuyer,  snap => { buyerThreads  = snap.docs.map(d=>({id:d.id,...d.data()})); merge(); });
+    const u2 = onSnapshot(qSeller, snap => { sellerThreads = snap.docs.map(d=>({id:d.id,...d.data()})); merge(); });
+    return () => { u1(); u2(); };
+  },
+  async markRead(threadId, role) {
+    // role: 'buyer' | 'seller'
+    const ref = doc(db, 'threads', threadId);
+    await updateDoc(ref, { [`unread_${role}`]: 0 }).catch(()=>{});
+  },
+
+  // ── Auth ───────────────────────────────────────────────────
+  async login(email, password) {
+    return await signInWithEmailAndPassword(auth, email, password);
+  },
+  async loginWithGoogle() {
+    return await signInWithPopup(auth, googleProvider);
+  },
+  async register(email, password, name) {
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    await updateProfile(cred.user, { displayName: name });
+    return cred;
+  },
+  async logout() {
+    await signOut(auth);
+    showToast('👋 Sesión cerrada');
+  },
+  getCurrentUser() { return currentUser; },
+  getCurrentUserName() {
+    if (!currentUser) return 'Invitado';
+    return currentUser.displayName || currentUser.email.split('@')[0];
+  }
+};
+
+// Disparar evento cuando DB está listo
+window.dispatchEvent(new Event('dbReady'));
+</script>
+
+<!-- DIRECT MESSAGE MODAL -->
+<div class="dm-overlay" id="dmOverlay" onclick="if(event.target===this)closeDM()">
+  <div class="dm-box">
+    <!-- Header -->
+    <div class="dm-head">
+      <button class="dm-back" id="dmBackBtn" onclick="showDMInbox()" style="display:none">‹</button>
+      <div class="dm-head-info">
+        <div class="dm-head-avatar" id="dmHeadAvatar">💬</div>
+        <div>
+          <div class="dm-head-name" id="dmSellerName">Mensajes</div>
+          <div class="dm-head-status" id="dmHeadStatus">UniMarket Chat</div>
+        </div>
+      </div>
+      <button class="modal-close" style="position:static;width:28px;height:28px;flex-shrink:0" onclick="closeDM()">✕</button>
+    </div>
+
+    <!-- INBOX VIEW -->
+    <div id="dmInboxView">
+      <div class="dm-inbox-empty" id="dmInboxEmpty" style="display:none">
+        <div style="font-size:32px">💬</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:8px">No tienes conversaciones aún.<br>Abre un producto y toca "Msg directo".</div>
+      </div>
+      <div id="dmInboxList"></div>
+    </div>
+
+    <!-- CHAT VIEW -->
+    <div id="dmChatView" style="display:none;flex-direction:column;flex:1;min-height:0">
+      <div class="dm-messages" id="dmMessages">
+        <div class="dm-empty" id="dmEmpty">Inicia la conversación 👇</div>
+      </div>
+      <div class="dm-input-row">
+        <input class="dm-input" type="text" id="dmInput" placeholder="Escribe un mensaje..." onkeydown="if(event.key==='Enter')sendDM()">
+        <button class="dm-send" onclick="sendDM()">➤</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- WA PROMPT MODAL -->
+<div class="overlay" id="waPromptOverlay">
+  <div class="modal" style="max-width:340px;text-align:center">
+    <div style="font-size:36px;margin-bottom:8px">📱</div>
+    <h3 style="margin-bottom:6px">Agrega tu WhatsApp</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Necesitamos tu número para poder contactarte si ganas el sorteo semanal 🎉</p>
+    <input class="pf-input" type="tel" id="waPromptInput" placeholder="Ej: 51987654321" style="text-align:center">
+    <button class="btn-publish" style="margin-top:4px" onclick="saveWAPrompt()">Guardar número</button>
+    <button onclick="document.getElementById('waPromptOverlay').classList.remove('open')" style="display:block;margin:10px auto 0;border:none;background:none;font-size:12px;color:var(--muted);cursor:pointer">Ahora no</button>
+  </div>
+</div>
+
+<!-- Auth directo — expone funciones al scope global sin depender de window.DB -->
+<script type="module">
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+const _app = getApps()[0]; // reusar la app ya inicializada
+const _auth = getAuth(_app);
+const _gProvider = new GoogleAuthProvider();
+
+window._authLogin = async (email, pass) => signInWithEmailAndPassword(_auth, email, pass);
+window._authGoogle = async () => signInWithPopup(_auth, _gProvider);
+window._authRegister = async (email, pass, name) => {
+  const cred = await createUserWithEmailAndPassword(_auth, email, pass);
+  await updateProfile(cred.user, { displayName: name });
+  return cred;
+};
+window.dispatchEvent(new Event('authReady'));
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#0F0E17;--ink2:#2A2A2A;--muted:#7A7A8A;
+  --bg:#F5F5F0;--white:#FFFFFF;--border:rgba(0,0,0,0.08);
+  /* UPN Brand: amarillo/dorado, negro, blanco */
+  --purple:#F5B800;--purple2:#FFD04D;--purple-bg:#FFF8DC;
+  --teal:#00B87A;--teal-bg:#E0F7EF;
+  --amber:#F5B800;--amber-bg:#FFF8DC;
+  --coral:#E03A2A;--coral-bg:#FFF0EE;
+  --pink:#E8356D;--pink-bg:#FDE8EF;
+  --green:#2DB86A;--green-bg:#E6F8EE;
+  --blue:#1A73E8;--blue-bg:#EAF2FF;
+  --gold:#F5B800;
+  /* UPN específicos */
+  --upn-yellow:#F5B800;--upn-black:#111111;--upn-dark:#1A1A1A;
+  --r:12px;
+}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;overflow-x:hidden}
+
+/* NAV — UPN Style */
+.nav{display:flex;align-items:center;gap:12px;padding:0 24px;height:62px;background:var(--upn-yellow);border-bottom:3px solid #D4A000;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.15)}
+.nav-logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:900;color:var(--upn-black);display:flex;align-items:center;gap:6px;letter-spacing:-0.5px}
+.nav-logo .logo-uni{color:var(--upn-black);font-style:normal;font-weight:900}
+.nav-logo .logo-market{color:var(--upn-black);font-style:normal;font-weight:700;background:var(--upn-black);color:var(--upn-yellow);padding:2px 8px;border-radius:6px}
+.nav-logo .logo-dot{width:7px;height:7px;border-radius:50%;background:var(--upn-black);margin:0 1px 4px}
+.user-hero h1{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;font-style:normal;color:#fff;line-height:1.2;margin-bottom:8px;letter-spacing:-0.3px}
+.user-hero h1 em{font-style:normal;font-size:inherit;font-weight:inherit}
+.user-hero h1 span{font-style:normal;font-size:inherit;font-weight:inherit;opacity:1}
+.nav-tabs{display:flex;gap:2px}
+.nav-sep{flex:1}
+.nav-tab{border:none;background:transparent;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;color:rgba(0,0,0,0.6);padding:7px 14px;border-radius:8px;cursor:pointer;transition:all .15s}
+.nav-tab.active{background:var(--upn-black);color:var(--upn-yellow);font-weight:700}
+.nav-tab:hover:not(.active){background:rgba(0,0,0,0.1);color:var(--upn-black)}
+.nav-badge{display:inline-flex;align-items:center;justify-content:center;background:var(--coral);color:#fff;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;margin-left:4px}
+.nav-user{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--upn-black);border-left:2px solid rgba(0,0,0,0.2);padding-left:14px;margin-left:4px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--upn-black);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--upn-yellow)}
+
+/* VIEWS */
+.view{display:none;animation:fadeIn .2s ease}
+.view.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ============ USER VIEW ============ */
+/* HERO BANNER — UPN Dark */
+.user-hero{background:#111;padding:32px 24px 36px;position:relative;overflow:hidden;border-bottom:4px solid var(--upn-yellow)}
+.user-hero::before{display:none}
+.user-hero::after{display:none}
+.hero-tag{display:inline-flex;align-items:center;gap:6px;background:var(--upn-yellow);color:var(--upn-black);font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;padding:5px 14px;border-radius:99px;margin-bottom:14px}
+.user-hero h1{font-family:'Syne',sans-serif;font-size:clamp(30px,8vw,42px);font-weight:800;color:#fff;line-height:1.08;margin:0;letter-spacing:-0.5px}
+.user-hero h1 em{font-style:normal;color:var(--upn-yellow);display:block}
+.user-hero p{font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:20px;margin-top:8px}
+.hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+.btn-primary{background:var(--upn-yellow);color:var(--upn-black);border:none;border-radius:10px;padding:10px 20px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(245,184,0,0.4)}
+.btn-outline{background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 20px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer}
+
+/* RAFFLE BANNER */
+.raffle-banner{margin:20px 20px 0;background:linear-gradient(120deg,#D97000,#B35A00);border-radius:var(--r);padding:16px 20px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden}
+.raffle-banner::before{content:'🎰';position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:40px;opacity:0.25}
+.rb-ico{font-size:28px;flex-shrink:0}
+.rb-text{}
+.rb-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff}
+.rb-sub{font-size:12px;color:rgba(255,255,255,0.9);margin-top:2px}
+.rb-weeks{display:flex;gap:6px;margin-top:8px}
+.rb-week{background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.35);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;color:#fff}
+.rb-week.active{background:#fff;color:#B35A00;font-weight:700}
+
+/* SEARCH BAR */
+.search-area{padding:16px 20px 0}
+.search-box{display:flex;align-items:center;gap:10px;background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px}
+.search-box input{flex:1;border:none;outline:none;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;color:var(--ink);background:transparent}
+.search-box input::placeholder{color:var(--muted)}
+
+/* FILTERS */
+.filters{display:flex;gap:8px;padding:12px 20px;overflow-x:auto}
+.filters::-webkit-scrollbar{display:none}
+.f-chip{border:1.5px solid var(--border);background:var(--white);color:var(--ink2);border-radius:99px;padding:5px 14px;font-size:12.5px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:'Plus Jakarta Sans',sans-serif}
+.f-chip.on{background:var(--purple);color:#fff;border-color:var(--purple)}
+
+/* PLAN BANNER */
+.plan-bar{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 20px 16px}
+.plan-pill{border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+.plan-pill.pa{background:var(--purple-bg);border:1.5px solid #C8BBFF}
+.plan-pill.pb{background:var(--teal-bg);border:1.5px solid #99E8CC}
+.pp-ico{font-size:22px}
+.pp-body{}
+.pp-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--ink)}
+.pp-desc{font-size:11px;color:var(--muted);margin-top:1px}
+
+/* PRODUCT GRID */
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1px;background:var(--border);margin:0 20px;border-radius:var(--r);overflow:hidden}
+.pcard{background:var(--white);padding:14px;cursor:pointer;position:relative;transition:background .15s}
+.pcard:hover{background:#FAFAFE}
+.pcard-plan{position:absolute;top:8px;right:8px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px}
+.pcard-edit-btn{position:absolute;top:8px;left:8px;background:rgba(255,255,255,0.92);border:1px solid var(--border);border-radius:7px;font-size:13px;line-height:1;padding:4px 6px;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.10);transition:transform .15s}.pcard-del-btn{position:absolute;top:8px;left:42px;background:rgba(255,255,255,0.92);border:1px solid rgba(220,50,50,0.35);border-radius:7px;font-size:13px;line-height:1;padding:4px 6px;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.10);transition:transform .15s}.pcard-del-btn:hover{transform:scale(1.12);background:rgba(255,220,220,0.95)}
+.pcard-edit-btn:hover{transform:scale(1.12)}
+.pplan-a{background:var(--purple-bg);color:var(--purple)}
+.pplan-b{background:var(--teal-bg);color:var(--teal)}
+.pcard-emoji{font-size:34px;text-align:center;margin-bottom:10px}
+.pcard-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;margin-bottom:5px}
+.badge-used{background:var(--amber-bg);color:var(--amber)}
+.badge-new{background:var(--green-bg);color:var(--green)}
+.badge-svc{background:var(--blue-bg);color:var(--blue)}
+.pcard-title{font-size:12.5px;font-weight:600;line-height:1.3;margin-bottom:4px;color:var(--ink)}
+.pcard-price{font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:900;color:#5B21B6;margin-bottom:3px;font-style:normal;font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
+.pcard-seller{font-size:11px;color:var(--muted)}
+.pcard-stars{color:var(--gold);font-size:10px}
+.pgrid-empty{background:var(--white);padding:48px;text-align:center;color:var(--muted);font-size:14px;width:100%;grid-column:1/-1}
+
+/* MY TICKETS */
+.my-section{padding:16px 20px;margin-top:4px}
+.my-section h3{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:12px}
+.tickets-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.tickets-row::-webkit-scrollbar{display:none}
+.ticket{background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;min-width:140px;text-align:center;flex-shrink:0}
+.ticket-num{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--purple)}
+.ticket-label{font-size:11px;color:var(--muted);margin-top:2px}
+.ticket-week{font-size:10px;font-weight:600;color:var(--amber);margin-top:4px}
+.no-tickets{color:var(--muted);font-size:13px;padding:8px 0}
+
+/* ============ ADMIN VIEW ============ */
+.admin-layout{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 58px)}
+.admin-sidebar{background:var(--white);border-right:1px solid var(--border);padding:20px 14px}
+.admin-sidebar h4{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:16px 0 6px;padding:0 8px}
+.admin-sidebar h4:first-child{margin-top:0}
+.aside-btn{width:100%;text-align:left;border:none;background:transparent;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:500;color:var(--ink2);padding:8px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .15s}
+.aside-btn.on{background:var(--purple-bg);color:var(--purple);font-weight:600}
+.aside-btn:hover:not(.on){background:var(--bg)}
+.aside-btn .cnt{margin-left:auto;background:var(--coral);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px}
+
+.admin-main{padding:24px;overflow-y:auto}
+.admin-panel{display:none}
+.admin-panel.on{display:block}
+
+/* KPI CARDS */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.kpi{background:var(--white);border:1px solid var(--border);border-radius:var(--r);padding:16px;position:relative;overflow:hidden}
+.kpi::after{content:attr(data-ico);position:absolute;right:12px;top:12px;font-size:26px;opacity:0.15}
+.kpi-val{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:var(--ink)}
+.kpi-lbl{font-size:11px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:0.5px}
+.kpi-delta{font-size:11px;font-weight:600;color:var(--green);margin-top:4px}
+
+/* TABLES */
+.card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px}
+.card-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}
+.card-head h3{font-family:'Syne',sans-serif;font-size:14px;font-weight:700}
+.card-badge{background:var(--purple-bg);color:var(--purple);font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);padding:10px 14px;text-align:left;background:var(--bg)}
+td{padding:11px 14px;font-size:13px;border-top:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:#FAFAFE}
+.tag{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.tag-pending{background:var(--amber-bg);color:var(--amber)}
+.tag-paid{background:var(--green-bg);color:var(--green)}
+.tag-overdue{background:var(--coral-bg);color:var(--coral)}
+.tag-a{background:var(--purple-bg);color:var(--purple)}
+.tag-b{background:var(--teal-bg);color:var(--teal)}
+.tag-confirmed{background:var(--green-bg);color:var(--green)}
+.tag-suspended{background:#F0F0F0;color:var(--muted)}
+.tag-active{background:var(--blue-bg);color:var(--blue)}
+.btn-sm{border:none;border-radius:7px;padding:5px 12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn-sm:hover{opacity:.8}
+.btn-warn{background:var(--amber-bg);color:var(--amber)}
+.btn-wa-admin{background:#E8F5E9;color:#1B8C3E;border:1.5px solid #A5D6A7;font-weight:700}
+.btn-susp{background:var(--coral-bg);color:var(--coral)}
+.btn-ok{background:var(--green-bg);color:var(--green)}
+.btn-purple{background:var(--purple-bg);color:var(--purple)}
+
+/* RAFFLE ADMIN */
+.raffle-admin{background:linear-gradient(135deg,#111111,#2A2A2A);border-radius:var(--r);padding:24px;color:#fff;margin-bottom:16px;border-top:4px solid var(--upn-yellow)}
+.ra-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px}
+.ra-sub{font-size:13px;opacity:0.75;margin-bottom:20px}
+.ra-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.ra-stat{background:rgba(255,255,255,0.1);border-radius:10px;padding:14px}
+.ra-stat-val{font-family:'Syne',sans-serif;font-size:24px;font-weight:800}
+.ra-stat-lbl{font-size:11px;opacity:0.7;margin-top:2px}
+.ra-prize{background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:14px;margin-bottom:16px;display:flex;align-items:center;gap:14px}
+.ra-prize-ico{font-size:32px}
+.ra-prize-info{}
+.ra-prize-name{font-weight:700;font-size:14px}
+.ra-prize-week{font-size:12px;opacity:0.7;margin-top:2px}
+.btn-raffle{background:var(--upn-yellow);color:var(--upn-black);border:none;border-radius:10px;padding:12px 24px;font-family:'Syne',sans-serif;font-size:14px;font-weight:800;cursor:pointer;transition:transform .15s}
+.btn-raffle:hover{transform:scale(1.02)}
+.winner-box{display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:10px;padding:16px;margin-top:14px;text-align:center;animation:fadeIn .4s}
+.winner-box .w-ico{font-size:36px;margin-bottom:6px}
+.winner-box .w-name{font-family:'Syne',sans-serif;font-size:18px;font-weight:800}
+.winner-box .w-detail{font-size:13px;opacity:0.8;margin-top:4px}
+
+/* PRICE SLIDER */
+.price-filter{padding:10px 20px 4px;display:flex;flex-direction:column;gap:6px}
+.price-filter-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.price-slider-wrap{position:relative;height:28px;flex:1;display:flex;align-items:center}
+.price-track{position:absolute;left:0;right:0;height:4px;border-radius:2px;background:var(--border)}
+.price-range-fill{position:absolute;height:4px;background:var(--upn-yellow);border-radius:2px}
+.price-thumb{position:absolute;width:20px;height:20px;border-radius:50%;background:var(--white);border:2px solid var(--upn-yellow);cursor:pointer;top:50%;transform:translate(-50%,-50%);appearance:none;-webkit-appearance:none;outline:none;margin:0;padding:0;z-index:2}
+.price-thumb::-webkit-slider-thumb{display:none}
+.price-input-range{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;margin:0}
+.price-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-weight:500}
+.price-badge{background:var(--upn-yellow);color:var(--upn-black);font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap}
+
+/* PUBLICATIONS */
+.pub-filters{display:flex;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);overflow-x:auto}
+.pf-btn{border:1.5px solid var(--border);background:transparent;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:500;color:var(--ink2);cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap}
+.pf-btn.on{background:var(--upn-black);color:var(--upn-yellow);border-color:var(--upn-black)}
+
+/* MODAL */
+.overlay{display:none;position:fixed;inset:0;background:rgba(15,14,23,0.55);backdrop-filter:blur(6px);z-index:500;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:var(--white);border-radius:18px;padding:28px;max-width:400px;width:90%;position:relative;box-shadow:0 32px 80px rgba(0,0,0,0.2);animation:fadeIn .2s}
+.modal h3{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;margin-bottom:4px}
+.modal-close{position:absolute;top:14px;right:14px;border:none;background:var(--bg);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
+.modal-product{background:var(--bg);border-radius:10px;padding:14px;display:flex;gap:12px;align-items:center;margin:14px 0}
+.modal-steps{margin-bottom:14px}
+.mstep{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)}
+.mstep:last-child{border:none}
+.mstep-ico{font-size:20px;flex-shrink:0}
+.mstep-txt{font-size:12.5px;line-height:1.45}
+.mstep-txt strong{display:block;font-weight:600;margin-bottom:1px}
+.modal-com{background:var(--teal-bg);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--teal);font-weight:600;text-align:center;margin-bottom:14px}
+.modal-plan-info{background:var(--purple-bg);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--upn-black);font-weight:500;margin-bottom:14px;text-align:center;border-left:3px solid var(--upn-yellow)}
+.btn-confirm{width:100%;background:var(--upn-yellow);color:var(--upn-black);border:none;border-radius:10px;padding:10px;font-family:'Syne',sans-serif;font-size:12.5px;font-weight:800;cursor:pointer}
+.raffle-reward{background:linear-gradient(120deg,var(--amber),#FF7A00);border-radius:8px;padding:10px 14px;font-size:12px;color:#fff;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* RATING STARS */
+.rating-star{font-size:36px;cursor:pointer;color:#D0CDE1;transition:color .12s,transform .12s;user-select:none;display:inline-block}
+.rating-star.active,.rating-star.hovered{color:#FFB800;transform:scale(1.15)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:#fff;border-radius:10px;padding:12px 20px;font-size:13px;font-weight:500;z-index:1000;transition:transform .3s;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+/* PUBLISH MODAL */
+.publish-form{}
+.pf-label{font-size:12px;font-weight:600;color:var(--ink2);margin-bottom:4px;display:block}
+.pf-input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;color:var(--ink);background:var(--white);outline:none;margin-bottom:12px}
+.pf-input:focus{border-color:var(--upn-yellow)}
+select.pf-input{cursor:pointer}
+.pf-plans{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.pf-plan{border:2px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:all .15s;text-align:center}
+.pf-plan.selected-a{border-color:var(--upn-yellow);background:var(--purple-bg)}
+.pf-plan.selected-b{border-color:var(--teal);background:var(--teal-bg)}
+.pf-plan-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;margin-bottom:4px}
+.pf-plan-cost{font-size:11px;color:var(--muted)}
+.pf-cost-box{background:var(--purple-bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--upn-black);font-weight:600;margin-bottom:14px;text-align:center;border-left:3px solid var(--upn-yellow)}
+.btn-publish{width:100%;background:var(--upn-yellow);color:var(--upn-black);border:none;border-radius:10px;padding:13px;font-family:'Syne',sans-serif;font-size:14px;font-weight:800;cursor:pointer}
+/* IMAGE UPLOAD */
+.img-upload-area{border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;background:var(--bg);position:relative;overflow:hidden;height:130px;display:flex;align-items:center;justify-content:center}
+.img-upload-area:hover{border-color:var(--upn-yellow)}
+.img-upload-area.has-img{border-color:var(--upn-yellow);background:var(--bg);cursor:default}
+.img-upload-area.has-img .iu-drop-zone{display:none}
+.iu-drop-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;pointer-events:none}
+.img-upload-area input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:2}
+.img-upload-area.has-img input[type=file]{display:none}
+.iu-ico{font-size:24px}
+.iu-txt{font-size:12px;color:var(--muted);font-weight:500}
+/* Canvas for drag-to-reframe */
+#imgCanvas{position:absolute;inset:0;width:100%;height:100%;display:none;cursor:grab;border-radius:8px}
+#imgCanvas.active{display:block}
+#imgCanvas:active{cursor:grabbing}
+/* Image controls overlay */
+.img-controls{position:absolute;top:6px;right:6px;display:none;gap:6px;z-index:10}
+.img-controls.visible{display:flex}
+.img-ctrl-btn{width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;backdrop-filter:blur(6px)}
+.img-ctrl-del{background:rgba(240,74,58,0.9);color:#fff}
+.img-ctrl-fit{background:rgba(0,0,0,0.55);color:#fff;font-size:11px}
+.img-drag-hint{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.55);color:#fff;font-size:10px;padding:2px 8px;border-radius:99px;pointer-events:none;white-space:nowrap;display:none}
+.img-drag-hint.show{display:block}
+/* CONDITION BUTTONS */
+.cond-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.cond-btn{border:1.5px solid var(--border);background:var(--white);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--ink2);transition:all .15s}
+.cond-btn.on-used{border-color:var(--amber);background:var(--amber-bg);color:var(--amber)}
+.cond-btn.on-new{border-color:var(--green);background:var(--green-bg);color:var(--green)}
+.cond-btn.on-food{border-color:var(--teal);background:var(--teal-bg);color:var(--teal)}
+.cond-btn.on-svc{border-color:var(--blue);background:var(--blue-bg);color:var(--blue)}
+.cond-btn.on-other{border-color:var(--muted);background:var(--bg);color:var(--ink2)}
+/* QUANTITY SELECTOR */
+.qty-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.qty-btn{width:32px;height:32px;border:1.5px solid var(--border);border-radius:8px;background:var(--white);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;transition:all .15s}
+.qty-btn:hover{border-color:var(--purple);color:var(--purple)}
+.qty-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;min-width:32px;text-align:center}
+/* MY PUBS PANEL */
+.mypubs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:14px}
+.mypubs-empty{padding:32px;text-align:center;color:var(--muted);font-size:13px}
+/* PCARD IMAGE */
+.pcard-img{width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:8px;display:block}
+/* PRODUCT DETAIL MODAL */
+.detail-img{width:100%;max-height:180px;object-fit:cover;border-radius:10px;margin-bottom:12px}
+/* DM BUTTON */
+.btn-dm{width:100%;background:var(--purple);color:#fff;border:none;border-radius:10px;padding:13px;font-family:'Syne',sans-serif;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;text-decoration:none}
+.btn-dm:hover{opacity:.9}
+/* DM OVERLAY */
+.dm-overlay{display:none;position:fixed;inset:0;background:rgba(15,14,23,0.55);backdrop-filter:blur(6px);z-index:600;align-items:center;justify-content:center}
+.dm-overlay.open{display:flex}
+.dm-box{background:var(--white);border-radius:18px;max-width:400px;width:93%;max-height:88vh;position:relative;box-shadow:0 32px 80px rgba(0,0,0,0.22);animation:fadeIn .2s;display:flex;flex-direction:column;overflow:hidden}
+/* DM HEAD */
+.dm-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--white);flex-shrink:0}
+.dm-head-info{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.dm-head-avatar{width:38px;height:38px;border-radius:50%;background:var(--purple-bg);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;font-family:'Syne',sans-serif;font-weight:800;color:var(--purple)}
+.dm-head-name{font-family:'Syne',sans-serif;font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dm-head-status{font-size:11px;color:var(--teal);font-weight:600}
+.dm-back{background:none;border:none;font-size:22px;cursor:pointer;color:var(--purple);padding:0 6px 0 0;font-weight:700;line-height:1;flex-shrink:0}
+/* DM INBOX */
+#dmInboxView{overflow-y:auto;flex:1}
+.dm-inbox-item{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .12s;position:relative}
+.dm-inbox-item:hover{background:var(--bg)}
+.dm-inbox-item:last-child{border-bottom:none}
+.dm-inbox-avatar{width:44px;height:44px;border-radius:50%;background:var(--purple-bg);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;font-weight:800;color:var(--purple);font-family:'Syne',sans-serif}
+.dm-inbox-body{flex:1;min-width:0}
+.dm-inbox-name{font-size:13px;font-weight:700;color:var(--ink)}
+.dm-inbox-preview{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.dm-inbox-time{font-size:10px;color:var(--muted);flex-shrink:0;align-self:flex-start;margin-top:2px}
+.dm-unread-badge{background:var(--purple);color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:2px 6px;position:absolute;top:12px;right:14px}
+.dm-inbox-empty{padding:40px 24px;text-align:center}
+/* DM MESSAGES */
+#dmChatView{display:flex;flex-direction:column;flex:1;min-height:0}
+.dm-messages{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:6px;background:var(--bg);min-height:200px;max-height:340px}
+.dm-bubble-row{display:flex;align-items:flex-end;gap:6px}
+.dm-bubble-row.me{flex-direction:row-reverse}
+.dm-bubble-row.them{flex-direction:row}
+.dm-bubble{padding:8px 12px;border-radius:18px;max-width:72%;font-size:13px;line-height:1.4;word-break:break-word}
+.dm-bubble-row.me .dm-bubble{background:var(--purple);color:#fff;border-bottom-right-radius:4px}
+.dm-bubble-row.them .dm-bubble{background:var(--white);color:var(--ink);border:1px solid var(--border);border-bottom-left-radius:4px}
+.dm-bubble-avatar{width:26px;height:26px;border-radius:50%;background:var(--purple-bg);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;font-weight:700;color:var(--purple);font-family:'Syne',sans-serif}
+.dm-bubble-row.me .dm-bubble-avatar{background:var(--purple);color:#fff}
+.dm-ts{font-size:10px;color:var(--muted);text-align:center;margin:6px 0 2px;opacity:.7}
+.dm-empty{color:var(--muted);font-size:12px;text-align:center;padding:30px 0}
+.dm-day-sep{text-align:center;font-size:10px;color:var(--muted);margin:8px 0;position:relative}
+.dm-day-sep::before,.dm-day-sep::after{content:'';position:absolute;top:50%;width:30%;height:1px;background:var(--border)}
+.dm-day-sep::before{left:0}.dm-day-sep::after{right:0}
+.dm-input-row{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border);background:var(--white);flex-shrink:0}
+.dm-input{flex:1;border:1.5px solid var(--border);border-radius:22px;padding:8px 14px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;color:var(--ink);outline:none;background:var(--bg)}
+.dm-input:focus{border-color:var(--purple);background:var(--white)}
+.dm-send{background:var(--purple);color:#fff;border:none;border-radius:50%;width:36px;height:36px;font-size:16px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:transform .1s}
+.dm-send:hover{transform:scale(1.08)}
+/* NAV DM BADGE */
+.dm-nav-badge{background:var(--purple);color:#fff;font-size:10px;font-weight:800;border-radius:99px;padding:1px 5px;vertical-align:middle;margin-left:4px;display:none}
+.dm-nav-badge.show{display:inline}
+
+/* WA BUTTON */
+.btn-wa{width:100%;background:#25D366;color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Syne',sans-serif;font-size:12.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;text-decoration:none}
+.btn-wa:hover{opacity:.9}
+/* PENDING PURCHASES in admin */
+.notif-row{background:var(--amber-bg);border-left:3px solid var(--amber);padding:12px 16px;display:flex;align-items:center;gap:12px;font-size:13px}
+.notif-row .notif-ico{font-size:22px;flex-shrink:0}
+
+/* COMMISSION COUNTDOWN */
+.comm-countdown{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block}
+.countdown-ok{background:var(--green-bg);color:var(--green)}
+.countdown-warn{background:var(--amber-bg);color:var(--amber);animation:pulseWarn 2s infinite}
+.countdown-critical{background:var(--coral-bg);color:var(--coral);animation:pulseCrit 1s infinite}
+.countdown-overdue{background:var(--coral);color:#fff;font-size:11px}
+@keyframes pulseWarn{0%,100%{opacity:1}50%{opacity:.6}}
+@keyframes pulseCrit{0%,100%{opacity:1}50%{opacity:.4}}
+.tag-critical{background:var(--coral-bg);color:var(--coral);border:1px solid var(--coral)}
+.tag-warn-tag{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber)}
+
+/* SELLER PROFILE MODAL */
+.sp-prod-card{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;transition:background .15s}
+.sp-prod-card:hover{background:var(--purple-bg)}
+.sp-prod-emoji{font-size:24px;flex-shrink:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--bg);border-radius:8px}
+.sp-prod-img{width:40px;height:40px;object-fit:cover;border-radius:8px;flex-shrink:0}
+.sp-review-item{padding:12px 0;border-bottom:1px solid var(--border)}
+.sp-review-item:last-child{border-bottom:none}
+.sp-review-stars{color:var(--gold);font-size:13px;margin-bottom:3px}
+.sp-review-comment{font-size:12px;color:var(--ink2);line-height:1.5}
+.sp-review-meta{font-size:11px;color:var(--muted);margin-top:3px}
+.sp-empty{text-align:center;padding:20px 0;color:var(--muted);font-size:13px}
+.seller-link{cursor:pointer;color:var(--purple);text-decoration:underline dotted;text-underline-offset:3px}
+.seller-link:hover{color:var(--purple2)}
+
+@media(max-width:680px){
+  .admin-layout{grid-template-columns:1fr}
+  .admin-sidebar{display:none}
+  .kpis{grid-template-columns:1fr 1fr}
+  .ra-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-logo"><span class="logo-uni">Uni</span><span class="logo-dot"></span><span class="logo-market">Market</span></div>
+  <div class="nav-sep"></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchView('user',this)">🛍️ Marketplace</button>
+    <button class="nav-tab" onclick="openDMInbox()">💬 Mensajes <span class="dm-nav-badge" id="dmNavBadge">0</span></button>
+    <button class="nav-tab" onclick="switchView('admin',this)">⚙️ Admin Panel <span class="nav-badge" id="adminBadge">3</span></button>
+  </div>
+  <div class="nav-user">
+    <div class="avatar">🎓</div>
+    <span class="current-user-name">···</span>
+    <button onclick="window.DB && window.DB.logout()" style="border:none;background:transparent;font-size:11px;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px;" title="Cerrar sesión">↩</button>
+  </div>
+</nav>
+
+<!-- ============ USER VIEW ============ -->
+<div class="view active" id="view-user">
+
+  <!-- HERO -->
+  <div class="user-hero">
+    <div class="hero-tag">✨ MARKETPLACE UNIVERSITARIO</div>
+    <h1>Compra, vende y conecta<em>en tu universidad</em></h1>
+    <p>Solo estudiantes verificados. Contacto directo por WhatsApp.</p>
+    <div class="hero-actions">
+      <button class="btn-primary" onclick="openPublish()">+ Publicar producto</button>
+      <button class="btn-outline" onclick="openMyPubs()">Ver mis publicaciones</button>
+    </div>
+  </div>
+
+  <!-- RAFFLE BANNER -->
+  <div class="raffle-banner">
+    <div class="rb-ico">🎰</div>
+    <div class="rb-text">
+      <div class="rb-title">¡Confirma tu compra y participa en el sorteo semanal!</div>
+      <div class="rb-sub">Cada compra confirmada te da 1 ticket automático. Premios alternos cada semana:</div>
+      <div class="rb-weeks">
+        <div class="rb-week active">Semana par → 💸 S/. 10 por Yape</div>
+        <div class="rb-week">Semana impar → 🧁 Postre gratis</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PLAN BAR -->
+  <div style="padding:14px 20px 0">
+    <div class="plan-bar" style="grid-template-columns:1fr">
+      <div class="plan-pill pb">
+        <div class="pp-ico">🟢</div>
+        <div class="pp-body">
+          <div class="pp-name">Plan B — Paga al vender</div>
+          <div class="pp-desc">Publica gratis. Mismo monto, pero al confirmar la venta.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SEARCH -->
+  <div class="search-area">
+    <div class="search-box">
+      <svg width="16" height="16" fill="none" stroke="#8B8BA0" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" id="userSearch" placeholder="Busca libros, tutorías, postres..." oninput="renderProducts()">
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filters">
+    <button class="f-chip on" onclick="setUserFilter('todos',this)">Todos</button>
+    <button class="f-chip" onclick="setUserFilter('libros',this)">📘 Libros</button>
+    <button class="f-chip" onclick="setUserFilter('tecnologia',this)">💻 Tecnología</button>
+    <button class="f-chip" onclick="setUserFilter('apuntes',this)">📝 Apuntes</button>
+    <button class="f-chip" onclick="setUserFilter('comida',this)">🍱 Comida</button>
+    <button class="f-chip" onclick="setUserFilter('servicios',this)">🎨 Servicios</button>
+    <button class="f-chip" onclick="setUserFilter('ropa',this)">👕 Ropa</button>
+    <button class="f-chip" onclick="setUserFilter('utiles',this)">🖊️ Útiles</button>
+    <button class="f-chip" onclick="setUserFilter('deporte',this)">🏋️ Deporte</button>
+    <button class="f-chip" onclick="setUserFilter('musica',this)">🎵 Arte</button>
+    <button class="f-chip" onclick="setUserFilter('gaming',this)">🎮 Gaming</button>
+    <button class="f-chip" onclick="setUserFilter('salud',this)">🌿 Salud</button>
+    <button class="f-chip" onclick="setUserFilter('otros',this)">🛠️ Otros</button>
+  </div>
+
+  <!-- PRICE FILTER -->
+  <div class="price-filter">
+    <div class="price-filter-row">
+      <span style="font-size:12px;font-weight:600;color:var(--ink2)">💰 Precio</span>
+      <span class="price-badge" id="priceLabel">S/. 0 – S/. 1000</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="price-labels" style="min-width:28px;text-align:right">S/. 0</span>
+      <div class="price-slider-wrap" id="sliderWrap">
+        <div class="price-track"></div>
+        <div class="price-range-fill" id="sliderFill"></div>
+        <input type="range" id="sliderMin" class="price-input-range" min="0" max="1000" value="0" step="10" oninput="updatePriceSlider()">
+        <input type="range" id="sliderMax" class="price-input-range" min="0" max="1000" value="1000" step="10" oninput="updatePriceSlider()">
+      </div>
+      <span class="price-labels" style="min-width:38px">S/. 1000</span>
+    </div>
+  </div>
+
+  <!-- PRODUCTS -->
+  <div style="padding:0 20px">
+    <div class="pgrid" id="pgrid"></div>
+  </div>
+
+  <!-- MY TICKETS -->
+  <div class="my-section">
+    <h3>🎟️ Mis tickets del sorteo</h3>
+    <div class="tickets-row" id="ticketsRow">
+      <div class="no-tickets">Aún no tienes tickets. ¡Confirma una compra para participar!</div>
+    </div>
+  </div>
+
+</div><!-- end user view -->
+
+<!-- ============ ADMIN VIEW ============ -->
+<div class="view" id="view-admin">
+  <div class="admin-layout">
+
+    <!-- SIDEBAR -->
+    <div class="admin-sidebar">
+      <h4>Dashboard</h4>
+      <button class="aside-btn on" onclick="setPanel('dashboard',this)">📊 Resumen general</button>
+      <h4>Gestión</h4>
+      <button class="aside-btn" onclick="setPanel('commissions',this)">💸 Comisiones <span class="cnt">3</span></button>
+      <button class="aside-btn" onclick="setPanel('publications',this)">📦 Publicaciones <span class="cnt" id="pubPendingBadge" style="display:none">0</span></button>
+      <button class="aside-btn" onclick="setPanel('purchases',this)">✅ Compras confirmadas</button>
+      <button class="aside-btn" onclick="setPanel('sellers',this)">👤 Vendedores</button>
+      <h4>Sorteo</h4>
+      <button class="aside-btn" onclick="setPanel('raffle',this)">🎰 Gestionar sorteo</button>
+      <h4>Comunidad</h4>
+      <button class="aside-btn" onclick="setPanel('ratings',this)">⭐ Calificaciones</button>
+    </div>
+
+    <!-- MAIN -->
+    <div class="admin-main">
+
+      <!-- DASHBOARD -->
+      <div class="admin-panel on" id="panel-dashboard">
+        <div class="kpis">
+          <div class="kpi" data-ico="💰">
+            <div class="kpi-val">S/. 87</div>
+            <div class="kpi-lbl">Ingresos esta semana</div>
+            <div class="kpi-delta">↑ +12% vs semana pasada</div>
+          </div>
+          <div class="kpi" data-ico="📦">
+            <div class="kpi-val">24</div>
+            <div class="kpi-lbl">Publicaciones activas</div>
+            <div class="kpi-delta">↑ +5 esta semana</div>
+          </div>
+          <div class="kpi" data-ico="✅">
+            <div class="kpi-val">18</div>
+            <div class="kpi-lbl">Ventas confirmadas</div>
+            <div class="kpi-delta">↑ +3 hoy</div>
+          </div>
+          <div class="kpi" data-ico="⚠️">
+            <div class="kpi-val">3</div>
+            <div class="kpi-lbl">Comisiones pendientes</div>
+            <div class="kpi-delta" style="color:var(--coral)">Requieren acción</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Actividad reciente</h3></div>
+          <table>
+            <thead><tr><th>Hora</th><th>Evento</th><th>Detalle</th></tr></thead>
+            <tbody>
+              <tr><td>Hace 5 min</td><td>✅ Compra confirmada</td><td>Laptop HP 8GB — Carlos M. → Lucía P.</td></tr>
+              <tr><td>Hace 18 min</td><td>📦 Nueva publicación</td><td>Plan A · Guitar Yamaha F310 — Bruno T.</td></tr>
+              <tr><td>Hace 1h</td><td>💸 Comisión recibida</td><td>S/. 3.00 de Diego R. (Auriculares Sony)</td></tr>
+              <tr><td>Hace 2h</td><td>🎟️ Ticket generado</td><td>Valeria T. confirmó compra de Apuntes</td></tr>
+              <tr><td>Hace 3h</td><td>⚠️ Advertencia enviada</td><td>Rodrigo L. — comisión pendiente 48h</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- COMISIONES -->
+      <div class="admin-panel" id="panel-commissions">
+        <div class="card">
+          <div class="card-head">
+            <h3>💸 Comisiones pendientes de cobro</h3>
+            <span class="card-badge">3 pendientes</span>
+          </div>
+          <table>
+            <thead><tr><th>Vendedor</th><th>Producto</th><th>Plan</th><th>Monto</th><th>Vence en</th><th>Estado</th><th>Acción</th></tr></thead>
+            <tbody id="commTable"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>✅ Comisiones cobradas este mes</h3></div>
+          <table>
+            <thead><tr><th>Vendedor</th><th>Producto</th><th>Plan</th><th>Monto</th><th>Fecha</th></tr></thead>
+            <tbody id="paidCommTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PUBLICACIONES -->
+      <div class="admin-panel" id="panel-publications">
+        <div class="card">
+          <div class="card-head"><h3>📦 Publicaciones activas</h3><span class="card-badge">24 activas</span></div>
+          <div class="pub-filters">
+            <button class="pf-btn on" onclick="setPubFilter('todas',this)">Todas</button>
+            <button class="pf-btn" onclick="setPubFilter('plan-b',this)">🟢 Plan B</button>
+            <button class="pf-btn" onclick="setPubFilter('pendiente',this)">⏳ Pendiente aprobación</button>
+          </div>
+          <table>
+            <thead><tr><th>Producto</th><th>Vendedor</th><th>Categoría</th><th>Plan</th><th>Precio</th><th>Estado</th><th>Fecha</th><th>Acción</th></tr></thead>
+            <tbody id="pubTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- COMPRAS -->
+      <div class="admin-panel" id="panel-purchases">
+        <div id="purchNotifs"></div>
+        <div class="card">
+          <div class="card-head"><h3>✅ Compras confirmadas</h3><span class="card-badge" id="purchBadge">18 este mes</span></div>
+          <table>
+            <thead><tr><th>Producto</th><th>Comprador</th><th>Vendedor</th><th>Plan</th><th>Comisión</th><th>Ticket sorteo</th><th>Fecha</th><th>Estado comisión</th></tr></thead>
+            <tbody id="purchTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VENDEDORES -->
+      <div class="admin-panel" id="panel-sellers">
+        <div class="card">
+          <div class="card-head"><h3>👤 Vendedores registrados</h3><span class="card-badge">12 activos</span></div>
+          <table>
+            <thead><tr><th>Vendedor</th><th>Facultad</th><th>Publicaciones</th><th>Ventas</th><th>Comisiones</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="sellersTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SORTEO -->
+      <div class="admin-panel" id="panel-raffle">
+        <div class="raffle-admin">
+          <div class="ra-title">🎰 Panel de Sorteo Semanal</div>
+          <div class="ra-sub">Sorteos alternos: semanas pares → S/. 10 Yape · semanas impares → 🧁 Postre gratis</div>
+          <div class="ra-grid">
+            <div class="ra-stat"><div class="ra-stat-val" id="raffleTickets">7</div><div class="ra-stat-lbl">Tickets esta semana</div></div>
+            <div class="ra-stat"><div class="ra-stat-val">Semana par</div><div class="ra-stat-lbl">Tipo de semana actual</div></div>
+            <div class="ra-stat"><div class="ra-stat-val">Sábado</div><div class="ra-stat-lbl">Próximo sorteo</div></div>
+          </div>
+          <div class="ra-prize">
+            <div class="ra-prize-ico">💸</div>
+            <div class="ra-prize-info">
+              <div class="ra-prize-name">Premio esta semana: S/. 10 por Yape</div>
+              <div class="ra-prize-week">Semana par — ganador elegido al azar entre tickets</div>
+            </div>
+          </div>
+          <button class="btn-raffle" onclick="doRaffle()">🎰 Realizar sorteo ahora</button>
+          <div class="winner-box" id="winnerBox">
+            <div class="w-ico">🏆</div>
+            <div class="w-name" id="winnerName"></div>
+            <div class="w-detail" id="winnerDetail"></div>
+            <a id="btnContactWinner" href="#" target="_blank" class="btn-wa" style="margin-top:12px;display:none;max-width:240px;margin-left:auto;margin-right:auto;padding:10px 16px;font-size:13px">
+              📲 Contactar ganador
+            </a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>🎟️ Tickets de esta semana</h3></div>
+          <table>
+            <thead><tr><th>#</th><th>Estudiante</th><th>Producto comprado</th><th>Confirmado</th><th>Ticket</th></tr></thead>
+            <tbody id="ticketsTable"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>📜 Historial de ganadores</h3></div>
+          <table>
+            <thead><tr><th>Semana</th><th>Ganador</th><th>Premio</th><th>Estado</th></tr></thead>
+            <tbody>
+              <tr><td>Semana 18</td><td>Paola M.</td><td>🧁 Postre gratis — Rosa A.</td><td><span class="tag tag-paid">Entregado</span></td></tr>
+              <tr><td>Semana 17</td><td>Andrés C.</td><td>💸 S/. 10 Yape</td><td><span class="tag tag-paid">Pagado</span></td></tr>
+              <tr><td>Semana 16</td><td>Renzo H.</td><td>🧁 Postre gratis — Daniela V.</td><td><span class="tag tag-paid">Entregado</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- CALIFICACIONES -->
+      <div class="admin-panel" id="panel-ratings">
+        <div class="card">
+          <div class="card-head"><h3>⭐ Calificaciones de vendedores</h3><span class="card-badge" id="ratingsCount">0 reseñas</span></div>
+          <div id="ratingsAdminContent">
+            <div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Cargando calificaciones...</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end admin-main -->
+  </div>
+</div><!-- end admin view -->
+
+<!-- CONFIRM PURCHASE MODAL -->
+<div class="overlay" id="confirmOverlay" onclick="closeConfirm(event)">
+  <div class="modal" style="max-height:88vh;overflow-y:auto;padding:20px">
+    <button class="modal-close" onclick="document.getElementById('confirmOverlay').classList.remove('open')">✕</button>
+    <h3 style="font-family:'Playfair Display',serif;font-size:20px;font-weight:900;font-style:italic;letter-spacing:-0.3px;color:var(--ink)">¿Confirmar compra?</h3>
+    <p style="font-size:12px;color:var(--muted);margin-top:3px">Si ya cerraste el trato con el vendedor, regístralo aquí.</p>
+    <div class="modal-product" id="confirmProduct" style="margin:10px 0;padding:10px"></div>
+
+    <!-- QUANTITY SELECTOR -->
+    <div style="margin-bottom:10px">
+      <label class="pf-label">Cantidad</label>
+      <div class="qty-row">
+        <button class="qty-btn" onclick="changeQty(-1)">−</button>
+        <div class="qty-val" id="qtyVal">1</div>
+        <button class="qty-btn" onclick="changeQty(1)">+</button>
+        <span style="font-size:12px;color:var(--muted)">unidades</span>
+      </div>
+    </div>
+
+    <div class="raffle-reward" style="padding:8px 12px;margin-bottom:10px;font-size:11.5px">🎰 <span>Al confirmar ganas <strong>1 ticket</strong> al sorteo. Premio: <strong id="raffPrize"></strong></span></div>
+
+    <div class="modal-steps" style="margin-bottom:10px">
+      <div class="mstep"><div class="mstep-ico">💬</div><div class="mstep-txt"><strong>Contacta al vendedor</strong>Primero coordina, luego confirma aquí.</div></div>
+      <div class="mstep"><div class="mstep-ico">✅</div><div class="mstep-txt"><strong>Confirmas aquí</strong>Queda registrado y genera tu ticket.</div></div>
+    </div>
+
+    <!-- BOTONES -->
+    <a id="btnWA" class="btn-wa" href="#" target="_blank" style="margin-top:4px;font-family:'Playfair Display',serif;font-style:italic;letter-spacing:0.2px;font-size:13px">
+      💬 Contactar al vendedor por WhatsApp
+    </a>
+    <!-- espacio reservado para futura funcionalidad -->
+    <div id="extraActionSlot" style="margin-top:8px"></div>
+    <button class="btn-confirm" style="margin-top:8px;font-family:'Playfair Display',serif;font-style:italic;letter-spacing:0.2px;font-size:13px" onclick="doPurchase()">✅ Confirmar que compré este producto</button>
+  </div>
+</div>
+
+<!-- PUBLISH MODAL -->
+<div class="overlay" id="publishOverlay" onclick="closePublish(event)">
+  <div class="modal" style="max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="document.getElementById('publishOverlay').classList.remove('open')">✕</button>
+    <h3>+ Publicar producto</h3>
+    <p style="font-size:13px;color:var(--muted);margin-top:4px;margin-bottom:14px">Completa los datos de tu publicación.</p>
+    <div class="publish-form">
+      <label class="pf-label">Imagen del producto (opcional)</label>
+      <div class="img-upload-area" id="imgUploadArea">
+        <input type="file" accept="image/*" id="pubImg" onchange="previewImg(event)">
+        <canvas id="imgCanvas"></canvas>
+        <div class="img-controls" id="imgControls">
+          <button type="button" class="img-ctrl-btn img-ctrl-fit" onclick="toggleFit()" title="Ajustar/llenar">⤢</button>
+          <button type="button" class="img-ctrl-btn img-ctrl-del" onclick="removeImg()" title="Eliminar imagen">✕</button>
+        </div>
+        <div class="img-drag-hint" id="imgDragHint">Arrastra para reencuadrar</div>
+        <div class="iu-drop-zone" id="imgPlaceholder">
+          <div class="iu-ico">📷</div>
+          <div class="iu-txt">Toca para subir foto del producto</div>
+        </div>
+      </div>
+      <label class="pf-label">Nombre del producto o servicio</label>
+      <input class="pf-input" type="text" id="pubName" placeholder="Ej: Cálculo I Stewart 8va edición">
+      <label class="pf-label">Categoría</label>
+      <select class="pf-input" id="pubCat" onchange="updatePubCost()">
+        <option value="">Selecciona una categoría...</option>
+        <option value="libros">📘 Libros universitarios</option>
+        <option value="tecnologia">💻 Tecnología</option>
+        <option value="apuntes">📝 Apuntes y resúmenes</option>
+        <option value="comida">🍱 Postres y comida</option>
+        <option value="servicios">🎨 Servicios estudiantiles</option>
+        <option value="ropa">👕 Ropa y accesorios</option>
+        <option value="utiles">🖊️ Útiles y materiales</option>
+        <option value="deporte">🏋️ Deporte y fitness</option>
+        <option value="musica">🎵 Arte y música</option>
+        <option value="gaming">🎮 Entretenimiento / Gaming</option>
+        <option value="salud">🌿 Salud y bienestar</option>
+        <option value="otros">🛠️ Otros</option>
+      </select>
+      <label class="pf-label">Condición del artículo</label>
+      <div class="cond-row" id="condRow">
+        <button type="button" class="cond-btn" onclick="selectCond('Usado',this)">🟡 Usado</button>
+        <button type="button" class="cond-btn" onclick="selectCond('Nuevo',this)">🟢 Nuevo</button>
+        <button type="button" class="cond-btn" onclick="selectCond('Comida',this)">🍱 Comida/Pedido</button>
+        <button type="button" class="cond-btn" onclick="selectCond('Servicio',this)">🎨 Servicio</button>
+        <button type="button" class="cond-btn" onclick="selectCond('Otro',this)">⚙️ Otro</button>
+      </div>
+      <input class="pf-input" type="text" id="condOtroText" placeholder="Describe la condición del artículo..." style="display:none;margin-top:-4px">
+      <label class="pf-label">Precio (S/.)</label>
+      <input class="pf-input" type="number" id="pubPrice" placeholder="Ej: 45" oninput="updatePubCost()">
+      <label class="pf-label">Descripción del producto</label>
+      <textarea class="pf-input" id="pubDesc" rows="3" placeholder="Ej: Estado: buen estado, pocas marcas de uso. Condición: completo con todos los accesorios. Motivo de venta: ya no lo necesito." style="resize:vertical;min-height:70px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;line-height:1.5"></textarea>
+      <label class="pf-label">Tu carrera</label>
+      <select class="pf-input" id="pubFaculty">
+        <option value="">Selecciona tu carrera...</option>
+        <optgroup label="🏢 Negocios">
+          <option>Administración</option>
+          <option>Administración Bancaria y Financiera</option>
+          <option>Administración y Gestión Empresarial</option>
+          <option>Administración y Marketing</option>
+          <option>Administración y Negocios Internacionales</option>
+          <option>Administración y Servicios Turísticos</option>
+          <option>Contabilidad y Finanzas</option>
+          <option>Economía</option>
+          <option>Economía y Negocios Internacionales</option>
+          <option>Gastronomía y Gestión de Restaurantes</option>
+          <option>Marketing Internacional</option>
+          <option>Negocios Internacionales</option>
+        </optgroup>
+        <optgroup label="⚙️ Ingeniería">
+          <option>Ingeniería Agroindustrial</option>
+          <option>Ingeniería Ambiental</option>
+          <option>Ingeniería Biomédica</option>
+          <option>Ingeniería Civil</option>
+          <option>Ingeniería de Minas</option>
+          <option>Ingeniería de Sistemas Computacionales</option>
+          <option>Ingeniería de Sistemas y Redes</option>
+          <option>Ingeniería de Software</option>
+          <option>Ingeniería Electrónica</option>
+          <option>Ingeniería Empresarial</option>
+          <option>Ingeniería en Ciencia de Datos</option>
+          <option>Ingeniería Geológica</option>
+          <option>Ingeniería Industrial</option>
+          <option>Ingeniería Mecatrónica</option>
+        </optgroup>
+        <optgroup label="📡 Comunicaciones">
+          <option>Comunicación</option>
+          <option>Comunicación Audiovisual en Medios Digitales</option>
+          <option>Comunicación y Diseño Gráfico</option>
+          <option>Comunicación y Marketing Digital</option>
+          <option>Comunicación y Periodismo</option>
+          <option>Comunicación y Publicidad</option>
+        </optgroup>
+        <optgroup label="🏥 Ciencias de la Salud">
+          <option>Enfermería</option>
+          <option>Farmacia y Bioquímica</option>
+          <option>Medicina Humana</option>
+          <option>Nutrición y Dietética</option>
+          <option>Obstetricia</option>
+          <option>Psicología</option>
+          <option>Terapia Física y Rehabilitación</option>
+        </optgroup>
+        <optgroup label="🏛️ Arquitectura y Diseño">
+          <option>Arquitectura y Diseño de Interiores</option>
+          <option>Arquitectura y Urbanismo</option>
+          <option>Diseño Industrial</option>
+        </optgroup>
+        <optgroup label="⚖️ Derecho y Ciencias Políticas">
+          <option>Derecho</option>
+        </optgroup>
+      </select>
+      <label class="pf-label">Tu WhatsApp (para que compradores te contacten)</label>
+      <input class="pf-input" type="tel" id="pubWA" placeholder="Ej: 51973793230">
+      <label class="pf-label">Elige tu plan</label>
+      <div class="pf-plans">
+        <div class="pf-plan selected-b" id="planBbtn" onclick="selectPlan('B')">
+          <div class="pf-plan-title">🟢 Plan B</div>
+          <div class="pf-plan-cost">Gratis ahora · Paga al vender</div>
+        </div>
+      </div>
+      <div class="pf-cost-box" id="pubCostBox">Selecciona categoría y plan para ver el costo</div>
+      <button class="btn-publish" onclick="doPublish()">Publicar ahora</button>
+    </div>
+  </div>
+</div>
+
+<!-- MY PUBLICATIONS MODAL -->
+<div class="overlay" id="myPubsOverlay" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="document.getElementById('myPubsOverlay').classList.remove('open')">✕</button>
+    <h3>📦 Mis publicaciones</h3>
+    <p style="font-size:13px;color:var(--muted);margin-top:4px;margin-bottom:14px">Productos y servicios que has publicado.</p>
+    <div id="myPubsList"></div>
+  </div>
+</div>
+
+<!-- EDIT PRODUCT MODAL -->
+<div class="overlay" id="editOverlay" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="document.getElementById('editOverlay').classList.remove('open')">✕</button>
+    <h3>✏️ Editar publicación</h3>
+    <p style="font-size:13px;color:var(--muted);margin-top:4px;margin-bottom:14px">Modifica los datos de tu producto.</p>
+    <div class="publish-form">
+      <label class="pf-label">Imagen del producto (opcional)</label>
+      <div class="img-upload-area" id="editImgUploadArea">
+        <input type="file" accept="image/*" id="editPubImg" onchange="editPreviewImg(event)">
+        <canvas id="editImgCanvas"></canvas>
+        <div class="img-controls" id="editImgControls">
+          <button type="button" class="img-ctrl-btn img-ctrl-fit" onclick="editToggleFit()" title="Ajustar/llenar">⤢</button>
+          <button type="button" class="img-ctrl-btn img-ctrl-del" onclick="editRemoveImg()" title="Eliminar imagen">✕</button>
+        </div>
+        <div class="img-drag-hint" id="editImgDragHint">Arrastra para reencuadrar</div>
+        <div class="iu-drop-zone" id="editImgPlaceholder">
+          <div class="iu-ico">📷</div>
+          <div class="iu-txt">Toca para cambiar la foto</div>
+        </div>
+      </div>
+      <label class="pf-label">Nombre del producto o servicio</label>
+      <input class="pf-input" type="text" id="editPubName" placeholder="Ej: Cálculo I Stewart 8va edición">
+      <label class="pf-label">Categoría</label>
+      <select class="pf-input" id="editPubCat">
+        <option value="">Selecciona una categoría...</option>
+        <option value="libros">📘 Libros universitarios</option>
+        <option value="tecnologia">💻 Tecnología</option>
+        <option value="apuntes">📝 Apuntes y resúmenes</option>
+        <option value="comida">🍱 Postres y comida</option>
+        <option value="servicios">🎨 Servicios estudiantiles</option>
+        <option value="ropa">👕 Ropa y accesorios</option>
+        <option value="utiles">🖊️ Útiles y materiales</option>
+        <option value="deporte">🏋️ Deporte y fitness</option>
+        <option value="musica">🎵 Arte y música</option>
+        <option value="gaming">🎮 Entretenimiento / Gaming</option>
+        <option value="salud">🌿 Salud y bienestar</option>
+        <option value="otros">🛠️ Otros</option>
+      </select>
+      <label class="pf-label">Condición del artículo</label>
+      <div class="cond-row" id="editCondRow">
+        <button type="button" class="cond-btn" onclick="editSelectCond('Usado',this)">🟡 Usado</button>
+        <button type="button" class="cond-btn" onclick="editSelectCond('Nuevo',this)">🟢 Nuevo</button>
+        <button type="button" class="cond-btn" onclick="editSelectCond('Comida',this)">🍱 Comida/Pedido</button>
+        <button type="button" class="cond-btn" onclick="editSelectCond('Servicio',this)">🎨 Servicio</button>
+        <button type="button" class="cond-btn" onclick="editSelectCond('Otro',this)">⚙️ Otro</button>
+      </div>
+      <input class="pf-input" type="text" id="editCondOtroText" placeholder="Describe la condición del artículo..." style="display:none;margin-top:-4px">
+      <label class="pf-label">Precio (S/.)</label>
+      <input class="pf-input" type="number" id="editPubPrice" placeholder="Ej: 45">
+      <label class="pf-label">Descripción del producto</label>
+      <textarea class="pf-input" id="editPubDesc" rows="3" placeholder="Ej: Estado: buen estado, pocas marcas de uso." style="resize:vertical;min-height:70px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;line-height:1.5"></textarea>
+      <label class="pf-label">Tu WhatsApp</label>
+      <input class="pf-input" type="tel" id="editPubWA" placeholder="Ej: 51973793230">
+      <button class="btn-publish" onclick="doEditProduct()" style="margin-top:8px">💾 Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- RATING MODAL -->
+<div class="overlay" id="ratingOverlay" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:360px;text-align:center">
+    <button class="modal-close" onclick="document.getElementById('ratingOverlay').classList.remove('open')">✕</button>
+    <div style="font-size:36px;margin-bottom:8px">⭐</div>
+    <h3 style="margin-bottom:4px">¿Cómo fue tu experiencia?</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:4px">Califica a <strong id="ratingSellerName"></strong></p>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:18px" id="ratingProductName"></p>
+
+    <!-- Stars -->
+    <div style="display:flex;justify-content:center;gap:8px;margin-bottom:16px" id="ratingStars">
+      <span class="rating-star" data-i="1" onclick="_ratingStars=1;renderRatingStars(0)" onmouseenter="renderRatingStars(1)" onmouseleave="renderRatingStars(0)">★</span>
+      <span class="rating-star" data-i="2" onclick="_ratingStars=2;renderRatingStars(0)" onmouseenter="renderRatingStars(2)" onmouseleave="renderRatingStars(0)">★</span>
+      <span class="rating-star" data-i="3" onclick="_ratingStars=3;renderRatingStars(0)" onmouseenter="renderRatingStars(3)" onmouseleave="renderRatingStars(0)">★</span>
+      <span class="rating-star" data-i="4" onclick="_ratingStars=4;renderRatingStars(0)" onmouseenter="renderRatingStars(4)" onmouseleave="renderRatingStars(0)">★</span>
+      <span class="rating-star" data-i="5" onclick="_ratingStars=5;renderRatingStars(0)" onmouseenter="renderRatingStars(5)" onmouseleave="renderRatingStars(0)">★</span>
+    </div>
+    <div id="ratingLabel" style="font-size:12px;color:var(--purple);font-weight:600;min-height:18px;margin-bottom:12px"></div>
+
+    <!-- Comment -->
+    <textarea class="pf-input" id="ratingComment" rows="3" placeholder="(Opcional) Comenta tu experiencia con este vendedor..." style="resize:none;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif;margin-bottom:12px"></textarea>
+
+    <button class="btn-publish" onclick="submitRating()" style="width:100%">Enviar calificación ⭐</button>
+    <button onclick="document.getElementById('ratingOverlay').classList.remove('open')" style="width:100%;margin-top:8px;background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif">Ahora no</button>
+  </div>
+</div>
+
+<!-- LOGIN / REGISTRO OVERLAY -->
+<div class="overlay open" id="loginOverlay">
+  <div class="modal" style="max-width:380px">
+    <h3 id="loginTitle">🎓 Bienvenido a UniMarket</h3>
+    <p style="font-size:13px;color:var(--muted);margin:6px 0 18px">Solo estudiantes UPN. Ingresa con tu correo <strong>@upn.pe</strong> o tu Gmail.</p>
+
+    <!-- Google button -->
+    <button id="btnGoogle" onclick="doLoginGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:14px;transition:background .15s" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Continuar con Google
+    </button>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+      <span style="font-size:12px;color:var(--muted)">o con correo @upn.pe</span>
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button id="tabLogin" onclick="switchLoginTab('login')"
+        style="flex:1;padding:8px;border-radius:8px;border:none;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;background:var(--purple);color:#fff;cursor:pointer">
+        Iniciar sesión
+      </button>
+      <button id="tabRegister" onclick="switchLoginTab('register')"
+        style="flex:1;padding:8px;border-radius:8px;border:1.5px solid var(--border);background:transparent;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;color:var(--ink2);cursor:pointer">
+        Registrarme
+      </button>
+    </div>
+
+    <div id="loginForm">
+      <input class="pf-input" type="email" id="loginEmail" placeholder="nombre.apellido@upn.pe">
+      <input class="pf-input" type="password" id="loginPass" placeholder="Contraseña">
+      <button class="btn-publish" onclick="doLogin()">Entrar →</button>
+    </div>
+
+    <div id="registerForm" style="display:none">
+      <input class="pf-input" type="text" id="regName" placeholder="Tu nombre completo">
+      <input class="pf-input" type="email" id="regEmail" placeholder="nombre.apellido@upn.pe">
+      <input class="pf-input" type="password" id="regPass" placeholder="Crea una contraseña (mín. 6 caracteres)">
+      <input class="pf-input" type="tel" id="regWA" placeholder="Tu WhatsApp: 51987654321">
+      <button class="btn-publish" onclick="doRegister()">Crear cuenta →</button>
+    </div>
+
+    <p id="loginError" style="font-size:12px;margin-top:10px;text-align:center;display:none;color:var(--coral);transition:color .2s;line-height:1.5"></p>
+  </div>
+</div>
+
+<!-- SELLER PROFILE MODAL -->
+<div class="overlay" id="sellerProfileOverlay" onclick="closeSellerProfile(event)">
+  <div class="modal" style="max-width:480px;padding:0;overflow:hidden">
+    <!-- Header banner -->
+    <div id="spBanner" style="background:linear-gradient(135deg,#111111 0%,#1A1A1A 50%,#2A2A2A 100%);padding:28px 24px 20px;position:relative;overflow:hidden;border-bottom:4px solid #F5B800">
+      <div style="position:absolute;right:-40px;top:-40px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,0.05)"></div>
+      <button onclick="document.getElementById('sellerProfileOverlay').classList.remove('open')"
+        style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;color:#fff;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div id="spAvatar" style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,0.15);border:3px solid rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0">🎓</div>
+        <div>
+          <div id="spName" style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff"></div>
+          <div id="spFaculty" style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:2px"></div>
+          <div id="spStars" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Stats row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--border)">
+      <div style="padding:14px;text-align:center;border-right:1px solid var(--border)">
+        <div id="spStatPubs" style="font-family:Syne,sans-serif;font-size:22px;font-weight:800;color:var(--purple)">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Publicaciones</div>
+      </div>
+      <div style="padding:14px;text-align:center;border-right:1px solid var(--border)">
+        <div id="spStatSales" style="font-family:Syne,sans-serif;font-size:22px;font-weight:800;color:var(--teal)">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Ventas</div>
+      </div>
+      <div style="padding:14px;text-align:center">
+        <div id="spStatRating" style="font-family:Syne,sans-serif;font-size:22px;font-weight:800;color:var(--gold)">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Calificación</div>
+      </div>
+    </div>
+    <!-- Body -->
+    <div style="padding:18px 20px;max-height:52vh;overflow-y:auto">
+      <div style="font-family:Syne,sans-serif;font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:10px;letter-spacing:.5px">PUBLICACIONES ACTIVAS</div>
+      <div id="spProducts"></div>
+
+      <div style="font-family:Syne,sans-serif;font-size:13px;font-weight:700;color:var(--ink2);margin:16px 0 10px;letter-spacing:.5px" id="spReviewsTitle">RESEÑAS</div>
+      <div id="spReviews"></div>
+    </div>
+    <!-- Footer -->
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px">
+      <a id="spWABtn" href="#" target="_blank" class="btn-wa" style="margin-top:0;flex:1;text-decoration:none">
+        <svg width="18" height="18" viewBox="0 0 32 32" fill="currentColor"><path d="M16 0C7.163 0 0 7.163 0 16c0 2.822.733 5.47 2.013 7.77L0 32l8.476-2.223A15.93 15.93 0 0016 32c8.837 0 16-7.163 16-16S24.837 0 16 0zm0 29.333a13.276 13.276 0 01-6.77-1.847l-.486-.29-5.03 1.32 1.343-4.906-.317-.503A13.273 13.273 0 012.667 16C2.667 8.636 8.636 2.667 16 2.667c7.363 0 13.333 5.97 13.333 13.333 0 7.364-5.97 13.333-13.333 13.333zm7.31-9.993c-.4-.2-2.366-1.167-2.733-1.3-.366-.133-.633-.2-.9.2-.267.4-1.033 1.3-1.267 1.567-.233.266-.467.3-.867.1-.4-.2-1.687-.622-3.213-1.98-1.187-1.057-1.988-2.363-2.22-2.763-.233-.4-.025-.616.175-.816.18-.18.4-.467.6-.7.2-.233.267-.4.4-.667.133-.266.067-.5-.033-.7-.1-.2-.9-2.167-1.233-2.967-.324-.78-.655-.674-.9-.686l-.767-.013c-.266 0-.7.1-1.066.5-.367.4-1.4 1.367-1.4 3.333s1.433 3.867 1.633 4.133c.2.267 2.82 4.307 6.833 6.033.955.413 1.7.66 2.28.844.958.306 1.83.263 2.519.16.768-.114 2.366-.967 2.7-1.9.333-.933.333-1.733.233-1.9-.1-.167-.366-.267-.766-.467z"/></svg>
+        Contactar por WhatsApp
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== DATA — ahora sincronizados con Firestore en tiempo real =====
+// Estos arrays son llenados por los listeners de Firebase (ver módulo ES module arriba).
+// NO modificar directamente: usar window.DB.addProduct(), etc.
+const products = []; // ← se llena desde Firestore, NO borrar estos seed data aún
+const _seedProducts = [
+  {id:1,emoji:'📘',title:'Cálculo I — Stewart 8va',price:'S/. 45',priceN:45,cat:'libros',badge:'badge-used',label:'Usado',seller:'Carlos M.',faculty:'Ingeniería',plan:'B',stars:4.8,comm:'S/. 1.50'},
+  {id:2,emoji:'💻',title:'Laptop HP 8GB RAM i5',price:'S/. 950',priceN:950,cat:'tecnologia',badge:'badge-used',label:'Usado',seller:'Lucía P.',faculty:'Sistemas',plan:'B',stars:4.5,comm:'S/. 10.00'},
+  {id:3,emoji:'📝',title:'Apuntes Anatomía I + II',price:'S/. 12',priceN:12,cat:'apuntes',badge:'badge-new',label:'Digital',seller:'Valeria T.',faculty:'Medicina',plan:'B',stars:5.0,comm:'S/. 1.00'},
+  {id:4,emoji:'🍱',title:'Almuerzo casero del día',price:'S/. 10',priceN:10,cat:'comida',badge:'badge-new',label:'Disponible',seller:'Rosa A.',faculty:'Campus',plan:'B',stars:4.9,comm:'S/. 0.50'},
+  {id:5,emoji:'🎧',title:'Auriculares Sony inalámbricos',price:'S/. 80',priceN:80,cat:'tecnologia',badge:'badge-used',label:'Usado',seller:'Diego R.',faculty:'Comunicaciones',plan:'B',stars:4.7,comm:'S/. 3.00'},
+  {id:6,emoji:'📐',title:'Set de dibujo técnico',price:'S/. 35',priceN:35,cat:'utiles',badge:'badge-used',label:'Usado',seller:'Andrés C.',faculty:'Arquitectura',plan:'B',stars:4.6,comm:'S/. 1.00'},
+  {id:7,emoji:'🎨',title:'Diseño de logo',price:'S/. 30',priceN:30,cat:'servicios',badge:'badge-svc',label:'Servicio',seller:'Fiorella G.',faculty:'Diseño',plan:'B',stars:5.0,comm:'S/. 1.00'},
+  {id:8,emoji:'👕',title:'Polo oficial de Ingeniería',price:'S/. 25',priceN:25,cat:'ropa',badge:'badge-new',label:'Nuevo',seller:'Manu S.',faculty:'Ingeniería',plan:'B',stars:4.3,comm:'S/. 2.00'},
+  {id:9,emoji:'📗',title:'Administración — Robbins 14va',price:'S/. 38',priceN:38,cat:'libros',badge:'badge-used',label:'Usado',seller:'Karen V.',faculty:'Administración',plan:'B',stars:4.5,comm:'S/. 1.50'},
+  {id:10,emoji:'🧑‍🏫',title:'Tutoría Cálculo y Álgebra',price:'S/. 25/hr',priceN:25,cat:'servicios',badge:'badge-svc',label:'Servicio',seller:'Renzo H.',faculty:'Ingeniería',plan:'B',stars:4.9,comm:'S/. 1.00'},
+  {id:11,emoji:'🖱️',title:'Mouse inalámbrico Logitech',price:'S/. 30',priceN:30,cat:'tecnologia',badge:'badge-new',label:'Nuevo',seller:'Ximena L.',faculty:'Sistemas',plan:'B',stars:4.4,comm:'S/. 3.00'},
+  {id:12,emoji:'☕',title:'Café y snacks importados',price:'S/. 8',priceN:8,cat:'comida',badge:'badge-new',label:'Disponible',seller:'Paola M.',faculty:'Campus',plan:'B',stars:4.8,comm:'S/. 0.50'},
+  {id:13,emoji:'🎸',title:'Guitarra Yamaha F310',price:'S/. 220',priceN:220,cat:'musica',badge:'badge-used',label:'Usado',seller:'Bruno T.',faculty:'Humanidades',plan:'B',stars:4.6,comm:'S/. 5.00'},
+  {id:14,emoji:'🏋️',title:'Mancuernas ajustables 10kg',price:'S/. 60',priceN:60,cat:'deporte',badge:'badge-used',label:'Usado',seller:'Gabriela S.',faculty:'Ed. Física',plan:'B',stars:4.7,comm:'S/. 1.00'},
+  {id:15,emoji:'🎮',title:'Control PS4 original azul',price:'S/. 95',priceN:95,cat:'gaming',badge:'badge-used',label:'Usado',seller:'Mateo C.',faculty:'Sistemas',plan:'B',stars:4.5,comm:'S/. 4.00'},
+  {id:16,emoji:'🧁',title:'Cupcakes personalizados x6',price:'S/. 18',priceN:18,cat:'comida',badge:'badge-svc',label:'Pedido',seller:'Daniela V.',faculty:'Campus',plan:'B',stars:5.0,comm:'S/. 1.00'},
+];
+
+const commissions = []; // ← llenado desde Firestore
+const _seedCommissions = [
+  {seller:'Lucía P.',product:'Laptop HP 8GB',plan:'B',amount:'S/. 10.00',remaining:'6 horas',status:'pending'},
+  {seller:'Manu S.',product:'Polo de Ingeniería',plan:'B',amount:'S/. 2.00',remaining:'1 día',status:'pending'},
+  {seller:'Rodrigo L.',product:'Mochila Adidas 35L',plan:'B',amount:'S/. 2.50',remaining:'VENCIDO',status:'overdue'},
+];
+
+const purchases = []; // ← llenado desde Firestore
+const _seedPurchases = [
+  {product:'Laptop HP 8GB',buyer:'Carlos M.',seller:'Lucía P.',plan:'B',comm:'S/. 10.00',ticket:'#019',commStatus:'pending'},
+  {product:'Diseño de logo',buyer:'Rosa A.',seller:'Fiorella G.',plan:'B',comm:'S/. 1.00',ticket:'#018',commStatus:'pending'},
+  {product:'Apuntes Anatomía',buyer:'Diego R.',seller:'Valeria T.',plan:'B',comm:'S/. 1.00',ticket:'#017',commStatus:'pending'},
+  {product:'Auriculares Sony',buyer:'Karen V.',seller:'Diego R.',plan:'B',comm:'S/. 3.00',ticket:'#016',commStatus:'pending'},
+  {product:'Guitarra Yamaha',buyer:'Paola M.',seller:'Bruno T.',plan:'B',comm:'S/. 5.00',ticket:'#015',commStatus:'pending'},
+];
+
+const sellers = [
+  {name:'Lucía P.',faculty:'Sistemas',pubs:3,sales:4,comm:'S/. 18.00',status:'active'},
+  {name:'Diego R.',faculty:'Comunicaciones',pubs:2,sales:6,comm:'S/. 22.00',status:'active'},
+  {name:'Valeria T.',faculty:'Medicina',pubs:1,sales:8,comm:'S/. 8.00',status:'active'},
+  {name:'Rodrigo L.',faculty:'Administración',pubs:2,sales:3,comm:'S/. 7.50',status:'warned'},
+  {name:'Bruno T.',faculty:'Humanidades',pubs:1,sales:2,comm:'S/. 5.00',status:'active'},
+  {name:'Fiorella G.',faculty:'Diseño',pubs:4,sales:10,comm:'S/. 10.00',status:'active'},
+];
+
+const raffleTickets = []; // ← llenado desde Firestore
+const ratings = []; // ← llenado desde Firestore
+
+const costMap = {
+  libros:{label:'S/. 1.50',note:'Libros universitarios'},
+  tecnologia:{label:'S/. 3.00 – S/. 10.00',note:'Según valor del equipo'},
+  apuntes:{label:'S/. 1.00',note:'Apuntes y resúmenes'},
+  comida:{label:'S/. 0.50 – S/. 2.00',note:'Según monto del pedido'},
+  servicios:{label:'S/. 1.00 – S/. 5.00',note:'Según tarifa del servicio'},
+  ropa:{label:'S/. 2.00',note:'Ropa y accesorios'},
+  utiles:{label:'S/. 1.00',note:'Útiles y materiales'},
+  deporte:{label:'S/. 2.00',note:'Deporte y fitness'},
+  musica:{label:'S/. 2.00 – S/. 6.00',note:'Arte y música'},
+  gaming:{label:'S/. 4.00',note:'Entretenimiento / Gaming'},
+  salud:{label:'S/. 1.50',note:'Salud y bienestar'},
+  otros:{label:'S/. 1.00 – S/. 5.00',note:'Según precio declarado'},
+};
+
+// ===== STATE =====
+let adminPlanBNotifs = [];
+let paidCommissions = [];
+let dismissedPurchNotifs = new Set();
+let userFilter = 'todos';
+let pubFilter = 'todas'; // filtro activo en panel publicaciones
+let selectedProduct = null;
+let myTickets = [];
+let selectedPlan = null;
+let selectedCondition = null;
+let selectedQty = 1;
+let myPublications = [];
+const ADMIN_WA = '51973793230';
+
+// Helper: nombre del usuario actual (fallback mientras carga Firebase)
+function getMe() {
+  return window.DB ? window.DB.getCurrentUserName() : 'Usuario';
+}
+
+// ===== LOGIN UI =====
+function switchLoginTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('loginForm').style.display = isLogin ? '' : 'none';
+  document.getElementById('registerForm').style.display = isLogin ? 'none' : '';
+  document.getElementById('loginTitle').textContent = isLogin ? '🎓 Iniciar sesión' : '🎓 Crear cuenta';
+  document.getElementById('tabLogin').style.background = isLogin ? 'var(--purple)' : 'transparent';
+  document.getElementById('tabLogin').style.color = isLogin ? '#fff' : 'var(--ink2)';
+  document.getElementById('tabRegister').style.background = isLogin ? 'transparent' : 'var(--purple)';
+  document.getElementById('tabRegister').style.color = isLogin ? 'var(--ink2)' : '#fff';
+  document.getElementById('loginError').style.display = 'none';
+}
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.innerHTML = msg;
+  el.style.display = '';
+}
+function showLoginErrorHTML(msg) {
+  const el = document.getElementById('loginError');
+  el.innerHTML = msg;
+  el.style.display = '';
+  el.style.color = 'var(--purple)';
+  setTimeout(() => { el.style.color = ''; }, 100);
+}
+function waitForAuth(callback) {
+  if (window._authLogin) { callback(); return; }
+  window.addEventListener('authReady', () => callback(), { once: true });
+}
+async function doLoginGoogle() {
+  const btn = document.getElementById('btnGoogle');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Conectando con Google...'; }
+  if (!window._authGoogle) {
+    let tries = 0;
+    await new Promise(resolve => {
+      const t = setInterval(() => {
+        tries++;
+        if (window._authGoogle || tries > 25) { clearInterval(t); resolve(); }
+      }, 200);
+    });
+  }
+  if (!window._authGoogle) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continuar con Google'; }
+    showLoginError('Error al cargar Google. Recarga la página.');
+    return;
+  }
+  try {
+    await window._authGoogle();
+    // onAuthStateChanged se encarga del resto
+  } catch(e) {
+    let msg;
+    if (e.code === 'auth/unauthorized-domain') {
+      const domain = location.hostname;
+      msg = `⚠️ Este dominio (<strong>${domain}</strong>) no está autorizado en Firebase. Ve a Firebase Console → Authentication → Settings → Authorized domains y agrega <strong>${domain}</strong>.`;
+      showLoginErrorHTML(msg);
+    } else if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
+      showLoginError('Cerraste la ventana de Google. Intenta de nuevo.');
+    } else if (e.code === 'auth/popup-blocked') {
+      showLoginError('Tu navegador bloqueó el popup. Permite ventanas emergentes para este sitio e intenta de nuevo.');
+    } else {
+      showLoginError('Error Google: ' + (e.code || e.message));
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continuar con Google'; }
+  }
+}
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value;
+  if (!email || !pass) { showLoginError('Completa todos los campos.'); return; }
+  waitForAuth(async () => {
+    try {
+      await window._authLogin(email, pass);
+    } catch(e) {
+      const msg = e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
+        ? 'Correo o contraseña incorrectos.'
+        : e.code === 'auth/too-many-requests'
+        ? 'Demasiados intentos. Espera unos minutos.'
+        : 'Error: ' + (e.code || e.message);
+      showLoginError(msg);
+    }
+  });
+}
+async function doRegister() {
+  const name  = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass  = document.getElementById('regPass').value;
+  const wa    = document.getElementById('regWA').value.trim();
+  if (!name || !email || !pass) { showLoginError('Completa todos los campos.'); return; }
+  if (!email.endsWith('@upn.pe')) { showLoginError('⚠️ Solo se permiten correos @upn.pe para registrarse.'); return; }
+  if (pass.length < 6) { showLoginError('La contraseña debe tener al menos 6 caracteres.'); return; }
+  waitForAuth(async () => {
+    try {
+      const cred = await window._authRegister(email, pass, name);
+      // Guardar perfil con WA en Firestore
+      if (window.DB) {
+        await window.DB.saveUserProfile(cred.user.uid, { uid: cred.user.uid, name, email, wa: wa || '' });
+      }
+      showToast('✅ ¡Cuenta creada! Bienvenido a UniMarket.');
+      if (!wa) showWAPrompt(cred.user.uid);
+    } catch(e) {
+      if (e.code === 'auth/email-already-in-use') {
+        switchLoginTab('login');
+        document.getElementById('loginEmail').value = email;
+        document.getElementById('loginPass').focus();
+        showLoginErrorHTML('✅ Este correo ya tiene cuenta. <strong>Ingresa tu contraseña</strong> para entrar.');
+      } else if (e.code === 'auth/operation-not-allowed') {
+        showLoginError('⚠️ Email/Password no está habilitado. Ve a Firebase Console → Authentication → Sign-in method.');
+      } else if (e.code === 'auth/weak-password') {
+        showLoginError('Contraseña muy débil. Usa al menos 6 caracteres.');
+      } else {
+        showLoginError('Error: ' + (e.code || e.message));
+      }
+    }
+  });
+}
+
+// ===== WA PROMPT =====
+function showWAPrompt(uid) {
+  document.getElementById('waPromptOverlay').classList.add('open');
+  document.getElementById('waPromptInput').value = '';
+  document.getElementById('waPromptInput')._uid = uid;
+}
+window.showWAPrompt = showWAPrompt;
+
+async function saveWAPrompt() {
+  const input = document.getElementById('waPromptInput');
+  const wa    = input.value.trim();
+  const uid   = input._uid || (window.DB && window.DB.getCurrentUser()?.uid);
+  if (!wa)  { showToast('⚠️ Ingresa tu número de WhatsApp.'); return; }
+  if (!uid) { showToast('⚠️ Error de sesión. Recarga.'); return; }
+  await window.DB.saveUserProfile(uid, { wa });
+  document.getElementById('waPromptOverlay').classList.remove('open');
+  showToast('✅ WhatsApp guardado. ¡Ahora puedes ganar el sorteo!');
+}
+
+// ===== NAV =====
+function switchView(v, btn) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function setPanel(id, btn) {
+  document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.aside-btn').forEach(b => b.classList.remove('on'));
+  document.getElementById('panel-'+id).classList.add('on');
+  btn.classList.add('on');
+}
+
+// ===== RATINGS HELPERS =====
+function getSellerRating(sellerName) {
+  const sellerRatings = ratings.filter(r => r.seller === sellerName);
+  if (!sellerRatings.length) return null;
+  const avg = sellerRatings.reduce((s, r) => s + r.stars, 0) / sellerRatings.length;
+  return { avg: Math.round(avg * 10) / 10, count: sellerRatings.length };
+}
+
+function starsHtml(avg, count, size = 'sm') {
+  const full = Math.floor(avg);
+  const half = avg - full >= 0.5 ? 1 : 0;
+  const empty = 5 - full - half;
+  const sz = size === 'lg' ? '18px' : '12px';
+  let s = '';
+  for (let i = 0; i < full;  i++) s += `<span style="color:#FFB800;font-size:${sz}">★</span>`;
+  if (half)                        s += `<span style="color:#FFB800;font-size:${sz}">½</span>`;
+  for (let i = 0; i < empty; i++) s += `<span style="color:#D0CDE1;font-size:${sz}">★</span>`;
+  s += `<span style="color:var(--muted);font-size:${size==='lg'?'13px':'10px'};margin-left:3px">${avg} (${count})</span>`;
+  return s;
+}
+
+// ===== PRICE SLIDER =====
+let priceMin = 0, priceMax = 1000;
+
+function updatePriceSlider() {
+  let min = parseInt(document.getElementById('sliderMin').value);
+  let max = parseInt(document.getElementById('sliderMax').value);
+  if (min > max) { const t = min; min = max; max = t; }
+  priceMin = min; priceMax = max;
+  const pct = v => (v / 1000) * 100;
+  document.getElementById('sliderFill').style.left  = pct(min) + '%';
+  document.getElementById('sliderFill').style.width = (pct(max) - pct(min)) + '%';
+  document.getElementById('priceLabel').textContent = `S/. ${min} – S/. ${max}`;
+  renderProducts();
+}
+// init fill on load
+document.addEventListener('DOMContentLoaded', () => updatePriceSlider());
+
+// ===== DIRECT MESSAGE — Firestore real-time =====
+let _dmThreadId   = null;   // thread abierto actualmente
+let _dmUnsubMsg   = null;   // unsub del listener de mensajes
+let _dmUnsubInbox = null;   // unsub del listener de inbox
+let _dmMyThreads  = [];     // cache de threads del usuario
+
+// Genera threadId determinístico por par (buyerUid, sellerUid)
+function dmThreadId(uid1, uid2) {
+  return [uid1, uid2].sort().join('_');
+}
+
+// Formatea timestamp (Firestore o Date) → "HH:MM"
+function dmFmtTime(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleTimeString('es-PE', { hour:'2-digit', minute:'2-digit' });
+}
+function dmFmtDay(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  if (diff === 0) return 'Hoy';
+  if (diff === 1) return 'Ayer';
+  return d.toLocaleDateString('es-PE', { day:'2-digit', month:'short' });
+}
+
+// Iniciales para avatar
+function dmInitials(name) {
+  return (name || '?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+}
+
+// Abre inbox (desde botón nav)
+function openDMInbox() {
+  document.getElementById('dmOverlay').classList.add('open');
+  showDMInbox();
+}
+
+// Muestra la vista de inbox
+function showDMInbox() {
+  document.getElementById('dmInboxView').style.display = '';
+  document.getElementById('dmChatView').style.display  = 'none';
+  document.getElementById('dmBackBtn').style.display   = 'none';
+  document.getElementById('dmSellerName').textContent  = 'Mensajes';
+  document.getElementById('dmHeadStatus').textContent  = 'UniMarket Chat';
+  document.getElementById('dmHeadAvatar').textContent  = '💬';
+
+  // Limpiar listener de mensajes anterior
+  if (_dmUnsubMsg) { _dmUnsubMsg(); _dmUnsubMsg = null; }
+  _dmThreadId = null;
+
+  // Iniciar/reanudar listener de inbox
+  const user = window.DB && window.DB.getCurrentUser();
+  if (!user) { renderDMInboxEmpty(); return; }
+
+  if (_dmUnsubInbox) return; // ya escuchando
+  _dmUnsubInbox = window.DB.listenMyThreads(user.uid, threads => {
+    _dmMyThreads = threads;
+    renderDMInbox(threads, user.uid);
+    // Badge nav
+    const totalUnread = threads.reduce((s,t) => {
+      const role = t.buyerUid === user.uid ? 'buyer' : 'seller';
+      return s + (t[`unread_${role}`] || 0);
+    }, 0);
+    const badge = document.getElementById('dmNavBadge');
+    badge.textContent = totalUnread;
+    badge.classList.toggle('show', totalUnread > 0);
+  });
+}
+
+function renderDMInboxEmpty() {
+  document.getElementById('dmInboxEmpty').style.display = '';
+  document.getElementById('dmInboxList').innerHTML = '';
+}
+
+function renderDMInbox(threads, myUid) {
+  const empty = document.getElementById('dmInboxEmpty');
+  const list  = document.getElementById('dmInboxList');
+  if (!threads.length) { empty.style.display = ''; list.innerHTML = ''; return; }
+  empty.style.display = 'none';
+  list.innerHTML = threads.map(t => {
+    const role     = t.buyerUid === myUid ? 'buyer' : 'seller';
+    const other    = role === 'buyer' ? t.sellerName : t.buyerName;
+    const unread   = t[`unread_${role}`] || 0;
+    const preview  = t.lastMsg || '...';
+    const time     = t.lastAt ? dmFmtDay(t.lastAt) : '';
+    return `
+    <div class="dm-inbox-item" onclick="openDMThread('${t.id}','${other}','${role}')">
+      <div class="dm-inbox-avatar">${dmInitials(other)}</div>
+      <div class="dm-inbox-body">
+        <div class="dm-inbox-name">${other}</div>
+        <div class="dm-inbox-preview">${preview.length > 42 ? preview.slice(0,42)+'…' : preview}</div>
+      </div>
+      <div class="dm-inbox-time">${time}</div>
+      ${unread ? `<span class="dm-unread-badge">${unread}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// Abre un thread específico (desde inbox)
+function openDMThread(threadId, otherName, myRole) {
+  _dmThreadId = threadId;
+  document.getElementById('dmInboxView').style.display  = 'none';
+  document.getElementById('dmChatView').style.display   = 'flex';
+  document.getElementById('dmBackBtn').style.display    = '';
+  document.getElementById('dmSellerName').textContent   = otherName;
+  document.getElementById('dmHeadStatus').textContent   = '● en línea';
+  document.getElementById('dmHeadAvatar').textContent   = dmInitials(otherName);
+
+  // Limpiar listener anterior
+  if (_dmUnsubMsg) { _dmUnsubMsg(); _dmUnsubMsg = null; }
+
+  // Marcar como leído
+  window.DB.markRead(threadId, myRole);
+
+  // Escuchar mensajes en tiempo real
+  _dmUnsubMsg = window.DB.listenMessages(threadId, msgs => {
+    renderDMChat(msgs);
+  });
+
+  setTimeout(() => document.getElementById('dmInput').focus(), 150);
+}
+
+function renderDMChat(msgs) {
+  const el    = document.getElementById('dmMessages');
+  const myUid = window.DB && window.DB.getCurrentUser()?.uid;
+  if (!msgs.length) {
+    el.innerHTML = '<div class="dm-empty">Inicia la conversación 👇</div>';
+    return;
+  }
+  let lastDay = '';
+  let html = '';
+  msgs.forEach(m => {
+    const isMe = m.senderUid === myUid;
+    const day  = m.createdAt ? dmFmtDay(m.createdAt) : '';
+    if (day && day !== lastDay) {
+      html += `<div class="dm-day-sep">${day}</div>`;
+      lastDay = day;
+    }
+    html += `
+    <div class="dm-bubble-row ${isMe ? 'me' : 'them'}">
+      <div class="dm-bubble-avatar">${dmInitials(m.senderName)}</div>
+      <div style="display:flex;flex-direction:column;gap:2px;max-width:72%">
+        <div class="dm-bubble">${m.text}</div>
+        <div class="dm-ts" style="text-align:${isMe?'right':'left'}">${dmFmtTime(m.createdAt)}</div>
+      </div>
+    </div>`;
+  });
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+// Abre DM desde el botón en modal de producto (comprador → vendedor)
+function openDM() {
+  if (!selectedProduct) return;
+  const user = window.DB && window.DB.getCurrentUser();
+  if (!user) { showToast('⚠️ Debes iniciar sesión.'); return; }
+
+  const sellerName = selectedProduct.seller;
+  const sellerUid  = selectedProduct.sellerUid || selectedProduct.seller; // fallback a nombre si no hay uid
+  const threadId   = dmThreadId(user.uid, sellerUid);
+  const myName     = window.DB.getCurrentUserName();
+
+  // Crear/actualizar thread con metadatos
+  window.DB.ensureThread(threadId, {
+    buyerUid:   user.uid,
+    buyerName:  myName,
+    sellerUid:  sellerUid,
+    sellerName: sellerName,
+    productTitle: selectedProduct.title,
+    text: '',
+    unread_buyer: 0,
+    unread_seller: 0
+  });
+
+  document.getElementById('dmOverlay').classList.add('open');
+  openDMThread(threadId, sellerName, 'buyer');
+}
+
+function closeDM() {
+  document.getElementById('dmOverlay').classList.remove('open');
+  if (_dmUnsubMsg) { _dmUnsubMsg(); _dmUnsubMsg = null; }
+}
+
+async function sendDM() {
+  const input = document.getElementById('dmInput');
+  const text  = input.value.trim();
+  if (!text || !_dmThreadId) return;
+  const user = window.DB && window.DB.getCurrentUser();
+  if (!user) { showToast('⚠️ Debes iniciar sesión.'); return; }
+
+  input.value = '';
+  input.focus();
+
+  const myName = window.DB.getCurrentUserName();
+
+  // Determinar rol y a quién va el unread
+  const thread = _dmMyThreads.find(t => t.id === _dmThreadId);
+  const amBuyer = thread && thread.buyerUid === user.uid;
+  const unreadField = amBuyer ? 'unread_seller' : 'unread_buyer';
+  const curUnread = thread ? (thread[unreadField] || 0) : 0;
+
+  // Guardar mensaje
+  await window.DB.sendMessage(_dmThreadId, {
+    text,
+    senderUid:  user.uid,
+    senderName: myName
+  });
+
+  // Actualizar thread (preview + unread del receptor)
+  await window.DB.ensureThread(_dmThreadId, {
+    ...(thread || {}),
+    text,
+    [unreadField]: curUnread + 1
+  });
+}
+
+// Iniciar inbox listener cuando el usuario se autentique
+// (se llama desde initRealtimeListeners)
+function initDMListener() {
+  const user = window.DB && window.DB.getCurrentUser();
+  if (!user) return;
+  if (_dmUnsubInbox) return;
+  _dmUnsubInbox = window.DB.listenMyThreads(user.uid, threads => {
+    _dmMyThreads = threads;
+    // Badge nav siempre actualizado
+    const totalUnread = threads.reduce((s,t) => {
+      const role = t.buyerUid === user.uid ? 'buyer' : 'seller';
+      return s + (t[`unread_${role}`] || 0);
+    }, 0);
+    const badge = document.getElementById('dmNavBadge');
+    if (badge) {
+      badge.textContent = totalUnread;
+      badge.classList.toggle('show', totalUnread > 0);
+    }
+    // Si inbox está abierto, re-renderizar
+    if (document.getElementById('dmInboxView').style.display !== 'none') {
+      renderDMInbox(threads, user.uid);
+    }
+  });
+}
+
+// ===== USER =====
+function setUserFilter(cat, btn) {
+  userFilter = cat;
+  document.querySelectorAll('.f-chip').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  renderProducts();
+}
+
+function renderProducts() {
+  const q = document.getElementById('userSearch').value.toLowerCase();
+  let list = products.filter(p => {
+    const mc = userFilter === 'todos' || p.cat === userFilter;
+    const mq = !q || p.title.toLowerCase().includes(q) || p.seller.toLowerCase().includes(q);
+    // parse price: "S/. 45" → 45
+    const raw = parseFloat((p.price || '').toString().replace(/[^\d.]/g,'')) || 0;
+    const mp = raw >= priceMin && raw <= priceMax;
+    return mc && mq && mp;
+  });
+  const grid = document.getElementById('pgrid');
+  if (!list.length) { grid.innerHTML = '<div class="pgrid-empty">😕 No hay productos en esta categoría.</div>'; return; }
+  grid.innerHTML = list.map(p => {
+    const cardId = p.firestoreId ? `'${p.firestoreId}'` : p.id;
+    const myUid = window.DB && window.DB.getCurrentUser()?.uid;
+    const isOwner = myUid && p.sellerUid === myUid;
+    return `
+    <div class="pcard" onclick="openConfirm(${cardId})">
+      <span class="pcard-plan ${p.plan==='A'?'pplan-a':'pplan-b'}">${p.plan==='A'?'⭐ Plan A':'🟢 Plan B'}</span>
+      ${isOwner ? `<button class="pcard-edit-btn" onclick="event.stopPropagation();openEditProduct('${p.firestoreId}')" title="Editar publicación">✏️</button><button class="pcard-del-btn" onclick="event.stopPropagation();deleteMyProduct('${p.firestoreId}','${p.title}')" title="Eliminar publicación">🗑️</button>` : ''}
+      ${p.img ? `<img class="pcard-img" src="${p.img}" alt="${p.title}">` : `<div class="pcard-emoji">${p.emoji}</div>`}
+      <span class="pcard-badge ${p.badge}">${p.label}</span>
+      <div class="pcard-title">${p.title}</div>
+      <div class="pcard-price">${p.price}</div>
+      <div class="pcard-seller"><span class="seller-link" onclick="event.stopPropagation();openSellerProfile('${p.seller}')">${p.seller}</span> · ${p.faculty}</div>
+      <div class="pcard-stars">${(() => {
+        const r = getSellerRating(p.seller);
+        if (r) return starsHtml(r.avg, r.count);
+        const seedStars = p.stars || 5.0;
+        return `${'★'.repeat(Math.floor(seedStars))}<span style="color:var(--muted);font-size:10px"> ${seedStars}</span>`;
+      })()}</div>
+    </div>`;
+  }).join('');
+}
+
+function openMyPubs() {
+  const list = document.getElementById('myPubsList');
+  const me = getMe();
+  const myPubs = products.filter(p => p.seller === me);
+  if (!myPubs.length) {
+    list.innerHTML = '<div class="mypubs-empty">😕 Aún no tienes publicaciones.<br>¡Publica tu primer producto!</div>';
+  } else {
+    list.innerHTML = myPubs.map(p => `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--bg)">
+        ${p.img ? `<img src="${p.img}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0">` : `<div style="font-size:32px;flex-shrink:0">${p.emoji}</div>`}
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.title}</div>
+          <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:800;color:var(--purple);font-style:normal">${p.price}</div>
+          <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
+            <span class="pcard-badge ${p.badge}" style="font-size:10px">${p.label}</span>
+            <span class="tag ${p.plan==='A'?'tag-a':'tag-b'}">${p.plan==='A'?'⭐ Plan A':'🟢 Plan B'}</span>
+          </div>
+        </div>
+        <span class="tag tag-active" style="flex-shrink:0">Activa</span>
+      </div>
+    `).join('');
+  }
+  document.getElementById('myPubsOverlay').classList.add('open');
+}
+
+function openConfirm(id) {
+  // Buscar por firestoreId primero, luego por id numérico (seed data)
+  selectedProduct = products.find(p => p.firestoreId === id || p.id == id);
+  if (!selectedProduct) return;
+  selectedQty = 1;
+  document.getElementById('qtyVal').textContent = 1;
+  const weekEven = true;
+  const prize = weekEven ? '💸 S/. 10 por Yape' : '🧁 Postre gratis';
+  document.getElementById('raffPrize').textContent = prize;
+  document.getElementById('confirmProduct').innerHTML = `
+    <div style="font-size:28px">${selectedProduct.emoji}</div>
+    <div>
+      <div style="font-size:14px;font-weight:600">${selectedProduct.title}</div>
+      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:800;color:var(--purple);font-style:normal;font-variant-numeric:tabular-nums">${selectedProduct.price}</div>
+      <div style="font-size:11px;color:var(--muted)">${selectedProduct.seller} · ${selectedProduct.faculty}</div>
+      <div style="margin-top:4px">${(() => {
+        const r = getSellerRating(selectedProduct.seller);
+        if (r) return starsHtml(r.avg, r.count, 'lg');
+        const s = selectedProduct.stars || 5.0;
+        return `${'★'.repeat(Math.floor(s))}<span style="color:var(--muted);font-size:11px"> ${s} (sin reseñas aún)</span>`;
+      })()}</div>
+      ${selectedProduct.desc ? `<div style="margin-top:10px;font-size:12.5px;color:var(--ink2);line-height:1.55;background:var(--bg);border-radius:8px;padding:9px 11px;border:1px solid var(--border)">${selectedProduct.desc}</div>` : ''}
+    </div>
+  `;
+
+
+
+  // WhatsApp link
+  const waNum = selectedProduct.wa || ADMIN_WA;
+  const waMsg = encodeURIComponent(`Hola! Vi tu publicación "${selectedProduct.title}" en UniMarket y me interesa. ¿Está disponible?`);
+  document.getElementById('btnWA').href = `https://wa.me/${waNum}?text=${waMsg}`;
+  document.getElementById('confirmOverlay').classList.add('open');
+}
+
+function closeConfirm(e) {
+  if (e.target === document.getElementById('confirmOverlay')) document.getElementById('confirmOverlay').classList.remove('open');
+}
+
+function changeQty(delta) {
+  selectedQty = Math.max(1, Math.min(10, selectedQty + delta));
+  document.getElementById('qtyVal').textContent = selectedQty;
+}
+
+async function doPurchase() {
+  if (!window.DB || !window.DB.getCurrentUser()) { showToast('⚠️ Debes iniciar sesión.'); return; }
+  document.getElementById('confirmOverlay').classList.remove('open');
+  const me = getMe();
+  const num = '#0' + (20 + myTickets.length);
+  myTickets.push({product: selectedProduct.title, ticket: num});
+  renderTickets();
+
+  const purchaseData = {
+    product: selectedProduct.title + (selectedQty > 1 ? ` ×${selectedQty}` : ''),
+    buyer: me,
+    seller: selectedProduct.seller,
+    plan: 'B',
+    comm: selectedProduct.comm,
+    ticket: num,
+    commStatus: 'pending'
+  };
+  await window.DB.addPurchase(purchaseData);
+
+  const productWithQty = selectedProduct.title + (selectedQty > 1 ? ` ×${selectedQty}` : '');
+
+  // Plan B: crear comisión pendiente para que el admin la cobre después
+  await window.DB.addCommission({
+    seller: selectedProduct.seller,
+    product: productWithQty,
+    plan: 'B',
+    amount: selectedProduct.comm,
+    remaining: '48 horas',
+    status: 'pending',
+    sellerWA: selectedProduct.wa || ADMIN_WA
+  });
+
+  await window.DB.addRaffleTicket({
+    student: me,
+    buyerUid: window.DB.getCurrentUser().uid,
+    product: selectedProduct.title,
+    date: 'Ahora',
+    ticket: num
+  });
+
+  showToast(`✅ Compra confirmada · 🎟️ Ticket ${num} generado!`);
+
+  // Pedir calificación al vendedor después de 1 segundo
+  setTimeout(() => openRatingModal(selectedProduct), 1200);
+}
+
+// ===== RATING MODAL =====
+let _ratingProduct = null;
+let _ratingStars = 0;
+
+function openRatingModal(product) {
+  _ratingProduct = product;
+  _ratingStars = 0;
+  document.getElementById('ratingSellerName').textContent = product.seller;
+  document.getElementById('ratingProductName').textContent = product.title;
+  document.getElementById('ratingComment').value = '';
+  renderRatingStars(0);
+  document.getElementById('ratingOverlay').classList.add('open');
+}
+
+function renderRatingStars(hovered) {
+  const stars = document.querySelectorAll('.rating-star');
+  const labels = ['', '😞 Mala experiencia', '😐 Regular', '🙂 Buena', '😊 Muy buena', '🤩 ¡Excelente!'];
+  stars.forEach((s, i) => {
+    s.classList.toggle('active', i < (_ratingStars || hovered));
+    s.classList.toggle('hovered', i < hovered && !_ratingStars);
+  });
+  const active = _ratingStars || hovered;
+  document.getElementById('ratingLabel').textContent = labels[active] || '';
+}
+
+async function submitRating() {
+  if (!_ratingStars) { showToast('⚠️ Selecciona al menos 1 estrella.'); return; }
+  if (!window.DB || !window.DB.getCurrentUser()) { showToast('⚠️ Debes iniciar sesión.'); return; }
+  const user = window.DB.getCurrentUser();
+  const comment = document.getElementById('ratingComment').value.trim();
+  await window.DB.addRating({
+    seller: _ratingProduct.seller,
+    sellerId: _ratingProduct.seller, // usamos nombre como ID (sin auth de vendedor)
+    raterUid: user.uid,
+    raterName: window.DB.getCurrentUserName(),
+    product: _ratingProduct.title,
+    stars: _ratingStars,
+    comment
+  });
+  document.getElementById('ratingOverlay').classList.remove('open');
+  showToast(`⭐ ¡Calificaste a ${_ratingProduct.seller} con ${_ratingStars} estrellas!`);
+}
+
+// ===== SELLER PROFILE MODAL =====
+function openSellerProfile(sellerName) {
+  const sellerProds = products.filter(p => p.seller === sellerName);
+  const sellerRating = getSellerRating(sellerName);
+  const sellerSales = purchases.filter(p => p.seller === sellerName).length;
+  const sellerReviews = ratings.filter(r => r.seller === sellerName);
+
+  // Header
+  document.getElementById('spName').textContent = sellerName;
+  const faculty = sellerProds[0]?.faculty || sellers.find(s=>s.name===sellerName)?.faculty || '—';
+  document.getElementById('spFaculty').textContent = `🎓 ${faculty}`;
+
+  // Stars in header
+  if (sellerRating) {
+    document.getElementById('spStars').innerHTML = starsHtml(sellerRating.avg, sellerRating.count, 'lg');
+  } else {
+    const seedProd = sellerProds[0];
+    const s = seedProd?.stars || 5.0;
+    document.getElementById('spStars').innerHTML = `<span style="color:var(--gold);font-size:14px">${'★'.repeat(Math.floor(s))}</span><span style="color:rgba(255,255,255,0.6);font-size:11px"> ${s} · sin reseñas aún</span>`;
+  }
+
+  // Stats
+  document.getElementById('spStatPubs').textContent = sellerProds.length || sellers.find(s=>s.name===sellerName)?.pubs || 0;
+  document.getElementById('spStatSales').textContent = sellerSales || sellers.find(s=>s.name===sellerName)?.sales || 0;
+  document.getElementById('spStatRating').textContent = sellerRating ? sellerRating.avg.toFixed(1) : (sellerProds[0]?.stars || '—');
+
+  // Active products
+  const prodsEl = document.getElementById('spProducts');
+  if (!sellerProds.length) {
+    prodsEl.innerHTML = '<div class="sp-empty">😕 No tiene publicaciones activas.</div>';
+  } else {
+    prodsEl.innerHTML = sellerProds.map(p => {
+      const cardId = p.firestoreId ? `'${p.firestoreId}'` : p.id;
+      return `<div class="sp-prod-card" onclick="document.getElementById('sellerProfileOverlay').classList.remove('open');setTimeout(()=>openConfirm(${cardId}),200)">
+        ${p.img ? `<img class="sp-prod-img" src="${p.img}">` : `<div class="sp-prod-emoji">${p.emoji}</div>`}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.title}</div>
+          <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:800;color:var(--purple);font-style:normal">${p.price}</div>
+        </div>
+        <span class="pcard-badge ${p.badge}" style="font-size:10px;flex-shrink:0">${p.label}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Reviews
+  const reviewsTitle = document.getElementById('spReviewsTitle');
+  const reviewsEl = document.getElementById('spReviews');
+  if (!sellerReviews.length) {
+    reviewsTitle.style.display = 'none';
+    reviewsEl.innerHTML = '<div class="sp-empty" style="margin-top:0">⭐ Aún no hay reseñas para este vendedor.</div>';
+  } else {
+    reviewsTitle.style.display = '';
+    reviewsEl.innerHTML = sellerReviews.slice(0,5).map(r => `
+      <div class="sp-review-item">
+        <div class="sp-review-stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</div>
+        ${r.comment ? `<div class="sp-review-comment">"${r.comment}"</div>` : ''}
+        <div class="sp-review-meta">— ${r.raterName || 'Anónimo'} · ${r.product || ''}</div>
+      </div>`).join('');
+  }
+
+  // WA button
+  const wa = sellerProds[0]?.wa || ADMIN_WA;
+  const waMsg = encodeURIComponent(`Hola ${sellerName}! Vi tu perfil en UniMarket y me interesa lo que vendes 👀`);
+  document.getElementById('spWABtn').href = `https://wa.me/${wa}?text=${waMsg}`;
+
+  document.getElementById('sellerProfileOverlay').classList.add('open');
+}
+
+function closeSellerProfile(e) {
+  if (e.target === document.getElementById('sellerProfileOverlay')) {
+    document.getElementById('sellerProfileOverlay').classList.remove('open');
+  }
+}
+
+function renderTickets() {
+  const row = document.getElementById('ticketsRow');
+  const user = window.DB && window.DB.getCurrentUser();
+  if (!user) return;
+  // Filtrar tickets del usuario actual desde Firestore (raffleTickets)
+  const myName = window.DB.getCurrentUserName();
+  const mine = raffleTickets.filter(t => t.student === myName || t.buyerUid === user.uid);
+  if (!mine.length) return;
+  row.innerHTML = mine.map(t => `
+    <div class="ticket">
+      <div class="ticket-num">${t.ticket}</div>
+      <div class="ticket-label">${(t.product||'').substring(0,20)}${(t.product||'').length>20?'...':''}</div>
+      <div class="ticket-week">Semana actual · 💸 S/. 10</div>
+    </div>
+  `).join('');
+}
+
+// ===== PUBLISH =====
+function openPublish() {
+  selectedPlan = 'B';
+  document.getElementById('publishOverlay').classList.add('open');
+}
+function closePublish(e) {
+  if (e.target === document.getElementById('publishOverlay')) document.getElementById('publishOverlay').classList.remove('open');
+}
+// ===== IMAGE UPLOAD WITH DRAG-TO-REFRAME =====
+let _img = null, _imgOffX = 0, _imgOffY = 0, _imgScale = 1, _imgFitMode = 'cover';
+let _dragging = false, _lastX = 0, _lastY = 0;
+
+function previewImg(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const image = new Image();
+    image.onload = function() {
+      _img = image;
+      _imgOffX = 0; _imgOffY = 0; _imgFitMode = 'cover';
+      const area = document.getElementById('imgUploadArea');
+      const canvas = document.getElementById('imgCanvas');
+
+      // Mostrar el canvas ANTES de calcular dimensiones para que clientWidth/Height sean correctos
+      canvas.style.display = 'block';
+      area.classList.add('has-img');
+
+      // Usar el tamaño real del área (con pequeño delay para que el DOM actualice)
+      requestAnimationFrame(() => {
+        canvas.width = area.clientWidth || 340;
+        canvas.height = area.clientHeight || 130;
+        _calcCoverScale();
+        drawCanvas();
+        canvas.classList.add('active');
+        document.getElementById('imgControls').classList.add('visible');
+        document.getElementById('imgPlaceholder').style.display = 'none';
+        setupCanvasDrag(canvas);
+        // Hint de arrastre
+        setTimeout(() => {
+          const hint = document.getElementById('imgDragHint');
+          hint.classList.add('show');
+          setTimeout(() => hint.classList.remove('show'), 2500);
+        }, 400);
+      });
+    };
+    image.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _calcCoverScale() {
+  const canvas = document.getElementById('imgCanvas');
+  const scaleX = canvas.width / _img.naturalWidth;
+  const scaleY = canvas.height / _img.naturalHeight;
+  _imgScale = _imgFitMode === 'cover' ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY);
+  // Center offset
+  _imgOffX = (canvas.width - _img.naturalWidth * _imgScale) / 2;
+  _imgOffY = (canvas.height - _img.naturalHeight * _imgScale) / 2;
+}
+
+function drawCanvas() {
+  const canvas = document.getElementById('imgCanvas');
+  if (!_img || !canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(_img, _imgOffX, _imgOffY, _img.naturalWidth * _imgScale, _img.naturalHeight * _imgScale);
+}
+
+function toggleFit() {
+  _imgFitMode = _imgFitMode === 'cover' ? 'contain' : 'cover';
+  _calcCoverScale();
+  drawCanvas();
+}
+
+function setupCanvasDrag(canvas) {
+  // Remove old listeners by cloning, preserving the id
+  const newCanvas = canvas.cloneNode(true);
+  newCanvas.id = 'imgCanvas'; // mantener id para que drawCanvas lo encuentre
+  canvas.parentNode.replaceChild(newCanvas, canvas);
+  newCanvas.classList.add('active');
+  newCanvas.style.display = 'block';
+
+  const start = (e) => {
+    _dragging = true;
+    const pt = e.touches ? e.touches[0] : e;
+    _lastX = pt.clientX; _lastY = pt.clientY;
+    e.preventDefault();
+  };
+  const move = (e) => {
+    if (!_dragging) return;
+    const pt = e.touches ? e.touches[0] : e;
+    _imgOffX += pt.clientX - _lastX;
+    _imgOffY += pt.clientY - _lastY;
+    _lastX = pt.clientX; _lastY = pt.clientY;
+    drawCanvas();
+    e.preventDefault();
+  };
+  const end = () => { _dragging = false; };
+
+  newCanvas.addEventListener('mousedown', start);
+  newCanvas.addEventListener('mousemove', move);
+  newCanvas.addEventListener('mouseup', end);
+  newCanvas.addEventListener('mouseleave', end);
+  newCanvas.addEventListener('touchstart', start, {passive:false});
+  newCanvas.addEventListener('touchmove', move, {passive:false});
+  newCanvas.addEventListener('touchend', end);
+}
+
+function removeImg() {
+  _img = null; _imgOffX = 0; _imgOffY = 0;
+  const canvas = document.getElementById('imgCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.classList.remove('active');
+  canvas.style.display = '';
+  document.getElementById('imgUploadArea').classList.remove('has-img');
+  document.getElementById('imgControls').classList.remove('visible');
+  document.getElementById('imgPlaceholder').style.display = '';
+  document.getElementById('pubImg').value = '';
+}
+
+function getCanvasDataUrl() {
+  if (!_img) return null;
+  return document.getElementById('imgCanvas').toDataURL('image/jpeg', 0.85);
+}
+function selectCond(cond, btn) {
+  selectedCondition = cond;
+  document.querySelectorAll('.cond-btn').forEach(b => b.className = 'cond-btn');
+  const classMap = {Usado:'on-used',Nuevo:'on-new','Comida':'on-food',Servicio:'on-svc',Otro:'on-other'};
+  btn.classList.add(classMap[cond] || 'on-other');
+  const otroField = document.getElementById('condOtroText');
+  otroField.style.display = cond === 'Otro' ? '' : 'none';
+  if (cond !== 'Otro') otroField.value = '';
+}
+function selectPlan(p) {
+  selectedPlan = p;
+  document.getElementById('planBbtn').className = 'pf-plan' + (p==='B'?' selected-b':'');
+  updatePubCost();
+}
+function updatePubCost() {
+  const cat = document.getElementById('pubCat').value;
+  const box = document.getElementById('pubCostBox');
+  if (!cat) { box.textContent = 'Selecciona categoría para ver el costo'; return; }
+  const c = costMap[cat];
+  box.textContent = `🟢 Plan B: Publicas gratis. Pagas ${c.label} al confirmar la venta.`;
+  box.style.background = 'var(--teal-bg)'; box.style.color = 'var(--teal)';
+}
+async function doPublish() {
+  if (!window.DB || !window.DB.getCurrentUser()) { showToast('⚠️ Debes iniciar sesión para publicar.'); return; }
+  const me = getMe();
+  const name = document.getElementById('pubName').value.trim();
+  const cat = document.getElementById('pubCat').value;
+  const desc = document.getElementById('pubDesc').value.trim();
+  const waInput = document.getElementById('pubWA').value.trim();
+  const faculty = document.getElementById('pubFaculty').value || 'Mi Carrera';
+  if (!name || !cat) { showToast('⚠️ Completa todos los campos.'); return; }
+
+  // Comprimir imagen para guardar en Firestore (sin Storage)
+  let imgSrc = null;
+  const canvasDataUrl = getCanvasDataUrl();
+  if (canvasDataUrl) {
+    try {
+      imgSrc = await window.DB.compressImage(canvasDataUrl, 400);
+    } catch(e) {
+      imgSrc = canvasDataUrl;
+    }
+  }
+
+  const otroText = document.getElementById('condOtroText').value.trim();
+  const condMap = {
+    Usado:{badge:'badge-used',label:'Usado'},
+    Nuevo:{badge:'badge-new',label:'Nuevo'},
+    'Comida':{badge:'badge-new',label:'Disponible'},
+    Servicio:{badge:'badge-svc',label:'Servicio'},
+    Otro:{badge:'badge-used',label: otroText || 'Otro'},
+  };
+  const cInfo = condMap[selectedCondition] || {badge:'badge-used',label:'Usado'};
+
+  const catEmojis = {libros:'📘',tecnologia:'💻',apuntes:'📝',comida:'🍱',servicios:'🎨',ropa:'👕',utiles:'🖊️',deporte:'🏋️',musica:'🎵',gaming:'🎮',salud:'🌿',otros:'🛠️'};
+  const emoji = catEmojis[cat] || '📦';
+
+  const price = document.getElementById('pubPrice').value;
+  const comm = costMap[cat] ? costMap[cat].label : 'S/. 1.00';
+  const newProd = {
+    emoji, title: name,
+    price: price ? `S/. ${price}` : 'A consultar',
+    priceN: parseFloat(price) || 0,
+    cat, badge: cInfo.badge, label: cInfo.label,
+    seller: me, sellerUid: window.DB.getCurrentUser().uid,
+    faculty,
+    plan: 'B', stars: 5.0, comm, desc,
+    img: imgSrc, wa: waInput || ADMIN_WA
+  };
+  await window.DB.addProduct(newProd);
+  await window.DB.addPlanBNotif({
+    seller: me, product: name, cat,
+    price: newProd.price, time: 'Ahora'
+  });
+  document.getElementById('publishOverlay').classList.remove('open');
+  showToast('✅ Publicación activa en Plan B. ¡Ya aparece en el marketplace!');
+  resetPublishForm();
+}
+
+function resetPublishForm() {
+  document.getElementById('pubName').value = '';
+  document.getElementById('pubCat').value = '';
+  document.getElementById('pubPrice').value = '';
+  document.getElementById('pubDesc').value = '';
+  document.getElementById('pubWA').value = '';
+  document.getElementById('pubFaculty').value = '';
+  selectedPlan = 'B';
+  selectedCondition = null;
+  document.getElementById('planBbtn').className = 'pf-plan selected-b';
+  document.getElementById('pubCostBox').textContent = 'Selecciona categoría para ver el costo';
+  document.querySelectorAll('.cond-btn').forEach(b => b.className = 'cond-btn');
+  document.getElementById('condOtroText').style.display = 'none';
+  document.getElementById('condOtroText').value = '';
+  removeImg();
+}
+
+// ===== EDIT PRODUCT =====
+let _editProductId = null;
+let _editCondition = null;
+let _editImgState = null; // { img: HTMLImageElement, offsetX, offsetY, scale, fitMode }
+
+async function deleteMyProduct(firestoreId, title) {
+  // Verify ownership before deleting
+  const p = products.find(x => x.firestoreId === firestoreId);
+  if (!p) return;
+  const myUid = window.DB?.getCurrentUser()?.uid;
+  if (!myUid || p.sellerUid !== myUid) {
+    showToast('⚠️ Solo puedes eliminar tus propias publicaciones.');
+    return;
+  }
+  if (!confirm(`¿Eliminar "${title}"?\nEsta acción no se puede deshacer.`)) return;
+  await window.DB.removeProduct(firestoreId);
+  showToast('🗑️ Publicación eliminada.');
+}
+
+function openEditProduct(firestoreId) {
+  const p = products.find(x => x.firestoreId === firestoreId);
+  if (!p) return;
+  // Verify ownership
+  const myUid = window.DB && window.DB.getCurrentUser()?.uid;
+  if (!myUid || p.sellerUid !== myUid) { showToast('⚠️ No puedes editar esta publicación.'); return; }
+
+  _editProductId = firestoreId;
+  _editCondition = p.label === 'Usado' ? 'Usado' : p.label === 'Nuevo' ? 'Nuevo' : p.label === 'Disponible' ? 'Comida' : p.label === 'Servicio' ? 'Servicio' : 'Otro';
+
+  document.getElementById('editPubName').value = p.title || '';
+  document.getElementById('editPubCat').value = p.cat || '';
+  document.getElementById('editPubPrice').value = p.priceN || '';
+  document.getElementById('editPubDesc').value = p.desc || '';
+  document.getElementById('editPubWA').value = p.wa || '';
+
+  // Condition buttons
+  document.querySelectorAll('#editCondRow .cond-btn').forEach(b => b.classList.remove('on-used','on-new','on-food','on-svc','on-other'));
+  const condLabelMap = {'Usado':'🟡 Usado','Nuevo':'🟢 Nuevo','Comida':'🍱 Comida/Pedido','Servicio':'🎨 Servicio','Otro':'⚙️ Otro'};
+  document.querySelectorAll('#editCondRow .cond-btn').forEach(b => {
+    const match = Object.keys(condLabelMap).find(k => b.textContent.trim() === condLabelMap[k]);
+    if (match && match === _editCondition) b.classList.add('on-used');
+  });
+
+  // Load existing image onto edit canvas
+  const editCanvas = document.getElementById('editImgCanvas');
+  const editPlaceholder = document.getElementById('editImgPlaceholder');
+  const editControls = document.getElementById('editImgControls');
+  _editImgState = null;
+  if (p.img) {
+    const img = new Image();
+    img.onload = () => {
+      _editImgState = { img, offsetX: 0, offsetY: 0, scale: 1, fitMode: true };
+      editCanvas.classList.add('active');
+      editPlaceholder.style.display = 'none';
+      editControls.classList.add('visible');
+      editDrawCanvas();
+    };
+    img.src = p.img;
+  } else {
+    editCanvas.classList.remove('active');
+    editPlaceholder.style.display = '';
+    editControls.classList.remove('visible');
+  }
+
+  document.getElementById('editOverlay').classList.add('open');
+}
+
+function editSelectCond(cond, btn) {
+  _editCondition = cond;
+  document.querySelectorAll('#editCondRow .cond-btn').forEach(b => b.classList.remove('on-used','on-new','on-food','on-svc','on-other'));
+  const classMap = {Usado:'on-used',Nuevo:'on-new','Comida':'on-food',Servicio:'on-svc',Otro:'on-other'};
+  btn.classList.add(classMap[cond] || 'on-used');
+  document.getElementById('editCondOtroText').style.display = cond === 'Otro' ? '' : 'none';
+  if (cond !== 'Otro') document.getElementById('editCondOtroText').value = '';
+}
+
+function editDrawCanvas() {
+  if (!_editImgState) return;
+  const canvas = document.getElementById('editImgCanvas');
+  const ctx = canvas.getContext('2d');
+  const { img, offsetX, offsetY, fitMode } = _editImgState;
+  const W = canvas.offsetWidth || 300, H = canvas.offsetHeight || 200;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  if (fitMode) {
+    const scale = Math.min(W / img.width, H / img.height);
+    const dw = img.width * scale, dh = img.height * scale;
+    ctx.drawImage(img, (W - dw) / 2 + offsetX, (H - dh) / 2 + offsetY, dw, dh);
+  } else {
+    const scale = Math.max(W / img.width, H / img.height);
+    const dw = img.width * scale, dh = img.height * scale;
+    ctx.drawImage(img, (W - dw) / 2 + offsetX, (H - dh) / 2 + offsetY, dw, dh);
+  }
+}
+
+function editGetCanvasDataUrl() {
+  const canvas = document.getElementById('editImgCanvas');
+  if (!canvas.classList.contains('active')) return null;
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
+function editPreviewImg(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      _editImgState = { img, offsetX: 0, offsetY: 0, scale: 1, fitMode: true };
+      const canvas = document.getElementById('editImgCanvas');
+      canvas.classList.add('active');
+      document.getElementById('editImgPlaceholder').style.display = 'none';
+      document.getElementById('editImgControls').classList.add('visible');
+      editDrawCanvas();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function editRemoveImg() {
+  _editImgState = null;
+  const canvas = document.getElementById('editImgCanvas');
+  canvas.classList.remove('active');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('editImgPlaceholder').style.display = '';
+  document.getElementById('editImgControls').classList.remove('visible');
+  document.getElementById('editPubImg').value = '';
+}
+
+function editToggleFit() {
+  if (!_editImgState) return;
+  _editImgState.fitMode = !_editImgState.fitMode;
+  editDrawCanvas();
+}
+
+// Drag to reposition on edit canvas
+(function() {
+  let dragging = false, startX, startY, baseX, baseY;
+  document.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('editImgCanvas');
+    canvas.addEventListener('mousedown', e => { dragging = true; startX = e.clientX; startY = e.clientY; baseX = _editImgState?.offsetX||0; baseY = _editImgState?.offsetY||0; });
+    window.addEventListener('mousemove', e => { if (!dragging || !_editImgState) return; _editImgState.offsetX = baseX + (e.clientX - startX); _editImgState.offsetY = baseY + (e.clientY - startY); editDrawCanvas(); });
+    window.addEventListener('mouseup', () => { dragging = false; });
+    canvas.addEventListener('touchstart', e => { dragging = true; startX = e.touches[0].clientX; startY = e.touches[0].clientY; baseX = _editImgState?.offsetX||0; baseY = _editImgState?.offsetY||0; }, {passive:true});
+    window.addEventListener('touchmove', e => { if (!dragging || !_editImgState) return; _editImgState.offsetX = baseX + (e.touches[0].clientX - startX); _editImgState.offsetY = baseY + (e.touches[0].clientY - startY); editDrawCanvas(); }, {passive:true});
+    window.addEventListener('touchend', () => { dragging = false; });
+  });
+})();
+
+async function doEditProduct() {
+  if (!_editProductId) return;
+  const name = document.getElementById('editPubName').value.trim();
+  const cat = document.getElementById('editPubCat').value;
+  if (!name || !cat) { showToast('⚠️ Completa nombre y categoría.'); return; }
+
+  const desc = document.getElementById('editPubDesc').value.trim();
+  const waInput = document.getElementById('editPubWA').value.trim();
+  const price = document.getElementById('editPubPrice').value;
+  const otroText = document.getElementById('editCondOtroText').value.trim();
+
+  const condMap = {
+    Usado:{badge:'badge-used',label:'Usado'},
+    Nuevo:{badge:'badge-new',label:'Nuevo'},
+    Comida:{badge:'badge-new',label:'Disponible'},
+    Servicio:{badge:'badge-svc',label:'Servicio'},
+    Otro:{badge:'badge-used',label: otroText || 'Otro'},
+  };
+  const cInfo = condMap[_editCondition] || {badge:'badge-used',label:'Usado'};
+  const catEmojis = {libros:'📘',tecnologia:'💻',apuntes:'📝',comida:'🍱',servicios:'🎨',ropa:'👕',utiles:'🖊️',deporte:'🏋️',musica:'🎵',gaming:'🎮',salud:'🌿',otros:'🛠️'};
+
+  let imgSrc = undefined; // undefined = no cambiar
+  const editCanvas = document.getElementById('editImgCanvas');
+  if (!editCanvas.classList.contains('active')) {
+    imgSrc = null; // se eliminó la imagen
+  } else {
+    const dataUrl = editGetCanvasDataUrl();
+    if (dataUrl) {
+      try { imgSrc = await window.DB.compressImage(dataUrl, 400); }
+      catch(e) { imgSrc = dataUrl; }
+    }
+  }
+
+  const updates = {
+    title: name, cat,
+    emoji: catEmojis[cat] || '📦',
+    price: price ? `S/. ${price}` : 'A consultar',
+    priceN: parseFloat(price) || 0,
+    badge: cInfo.badge, label: cInfo.label,
+    desc, wa: waInput || ADMIN_WA,
+  };
+  if (imgSrc !== undefined) updates.img = imgSrc;
+
+  await window.DB.updateProduct(_editProductId, updates);
+  document.getElementById('editOverlay').classList.remove('open');
+  showToast('✅ Publicación actualizada.');
+  _editProductId = null;
+}
+
+function updateAdminBadge() {
+  const commPending = commissions.filter(c=>c.status!=='paid').length;
+  const total = commPending + adminPlanBNotifs.length;
+  const badge = document.getElementById('adminBadge');
+  badge.textContent = total || '';
+  const pubBadge = document.getElementById('pubPendingBadge');
+  const pubPendingTotal = adminPlanBNotifs.length;
+  if (pubPendingTotal > 0) {
+    pubBadge.textContent = pubPendingTotal;
+    pubBadge.style.display = '';
+  } else {
+    pubBadge.style.display = 'none';
+  }
+}
+
+async function dismissPlanBNotif(i) {
+  const notif = adminPlanBNotifs[i];
+  if (!notif) return;
+  await window.DB.removePlanBNotif(notif.firestoreId);
+  showToast('✅ Notificación marcada como vista.');
+}
+
+async function removePlanBPub(i) {
+  const notif = adminPlanBNotifs[i];
+  if (!notif) return;
+  // Remove the product from Firestore
+  const prod = products.find(p => p.seller === notif.seller && p.title === notif.product);
+  if (prod && prod.firestoreId) await window.DB.removeProduct(prod.firestoreId);
+  await window.DB.removePlanBNotif(notif.firestoreId);
+  showToast('🗑️ Publicación retirada del marketplace.');
+}
+
+// ===== COMMISSION COUNTDOWN SYSTEM =====
+// Calcula ms restantes desde createdAt hasta 48h
+function getCommMsRemaining(c) {
+  if (!c.createdAt) return null;
+  const created = c.createdAt.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+  const deadline = new Date(created.getTime() + 48 * 3600 * 1000);
+  return deadline - Date.now();
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return { text: '⛔ VENCIDO', cls: 'countdown-overdue', stage: 'overdue' };
+  const totalSecs = Math.floor(ms / 1000);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  const pad = n => String(n).padStart(2,'0');
+  const text = `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+  if (h < 6)  return { text: `🔴 ${text}`, cls: 'countdown-critical', stage: 'critical' };
+  if (h < 12) return { text: `🟠 ${text}`, cls: 'countdown-warn', stage: 'warn' };
+  return { text: `🟢 ${text}`, cls: 'countdown-ok', stage: 'ok' };
+}
+
+// Alertas ya enviadas para no repetir en la misma sesión
+const _alertsSent = new Set();
+
+// Busca el comprador de una comisión en purchases
+function getBuyerWA(c) {
+  const purch = purchases.find(p =>
+    p.seller === c.seller &&
+    (p.product === c.product || c.product.startsWith(p.product ? p.product.substring(0,15) : ''))
+  );
+  return purch ? { buyer: purch.buyer, buyerWA: purch.buyerWA || null } : { buyer: null, buyerWA: null };
+}
+
+function checkCommissionAlerts() {
+  commissions.forEach(c => {
+    if (!c.firestoreId || !c.createdAt) return;
+    const ms = getCommMsRemaining(c);
+    if (ms === null) return;
+    const h = ms / 3600000;
+    const key12 = c.firestoreId + '_12h';
+    const key6  = c.firestoreId + '_6h';
+    const key0  = c.firestoreId + '_0h';
+
+    // Aviso 12 horas — amable, menciona posible suspensión
+    if (h <= 12 && h > 6 && !_alertsSent.has(key12)) {
+      _alertsSent.add(key12);
+      if (window.DB) window.DB.updateCommission(c.firestoreId, { alert12Sent: true }).catch(()=>{});
+      showCommAlert(c, '12h');
+    }
+    // Aviso 6 horas — urgente al vendedor + aviso al comprador, SIN suspender aún
+    if (h <= 6 && h > 0 && !_alertsSent.has(key6)) {
+      _alertsSent.add(key6);
+      if (window.DB) window.DB.updateCommission(c.firestoreId, { alert6Sent: true }).catch(()=>{});
+      showCommAlert(c, '6h');
+    }
+    // Vencido — suspensión real
+    if (h <= 0 && !_alertsSent.has(key0)) {
+      _alertsSent.add(key0);
+      if (window.DB) window.DB.updateCommission(c.firestoreId, { status: 'overdue' }).catch(()=>{});
+      showCommAlert(c, '0h');
+    }
+  });
+}
+
+function showCommAlert(c, stage) {
+  const wa = c.sellerWA;
+  const { buyer, buyerWA } = getBuyerWA(c);
+
+  // Toast admin
+  const adminMsgs = {
+    '12h': `⏰ Quedan 12h — ${c.seller} debe pagar ${c.amount} por "${c.product}"`,
+    '6h':  `🚨 ¡Solo 6h! Avisando a vendedor y comprador — "${c.product}"`,
+    '0h':  `⛔ VENCIDO — ${c.seller} · "${c.product}" · ${c.amount}`
+  };
+  showToast(adminMsgs[stage]);
+
+  // ── Mensajes al VENDEDOR ──────────────────────────────────
+  const msgVendedor12 = encodeURIComponent(
+`Hola ${c.seller} 😊 Te escribimos desde *UniMarket*.
+Queremos recordarte que tienes pendiente el pago de tu comisión de *${c.amount}* por la venta de *"${c.product}"*.
+⏰ *Te quedan aproximadamente 12 horas* para realizarlo.
+Si no se acredita el pago dentro de ese plazo, tu cuenta podría ser *suspendida temporalmente* en la plataforma.
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+¡Estamos seguros de que lo resolverás! Cualquier consulta, aquí estamos 💜`);
+
+  const msgVendedor6 = encodeURIComponent(
+`Hola ${c.seller} 🙏 Te contactamos urgente desde *UniMarket*.
+*⚠️ Solo te quedan 6 horas* para pagar tu comisión de *${c.amount}* por *"${c.product}"*.
+Si el pago no se acredita antes de que venza el plazo, tu publicación y cuenta serán *suspendidas* en la plataforma.
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+En cuanto recibamos el pago, ¡todo queda reactivado de inmediato! 🚀 Gracias por tu comprensión 💜`);
+
+  const msgVendedor0 = encodeURIComponent(
+`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar la comisión de *${c.amount}* por *"${c.product}"* ha *vencido* ⛔.
+Tu cuenta y publicaciones han sido *suspendidas temporalmente* en UniMarket.
+Para reactivarlas, realiza el pago a la brevedad:
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+En cuanto lo recibamos, coordinamos la reactivación de inmediato 💜 Estamos aquí para ayudarte.`);
+
+  // ── Mensaje al COMPRADOR (solo en 6h y 0h) ───────────────
+  const msgComprador6 = buyerWA ? encodeURIComponent(
+`Hola${buyer ? ' ' + buyer : ''} 😊 Te escribimos desde *UniMarket*.
+Queremos informarte que el vendedor de *"${c.product}"* aún tiene pendiente el pago de su comisión de plataforma.
+⚠️ Si no se regulariza en las próximas *6 horas*, su cuenta podría ser *suspendida temporalmente*.
+No te preocupes — tu compra ya está confirmada y cualquier inconveniente lo gestionamos nosotros 💜
+¡Gracias por confiar en UniMarket!`) : null;
+
+  const msgComprador0 = buyerWA ? encodeURIComponent(
+`Hola${buyer ? ' ' + buyer : ''} 😊 Te avisamos desde *UniMarket*.
+La cuenta del vendedor de *"${c.product}"* ha sido *suspendida temporalmente* por falta de pago de comisión.
+Tu compra está registrada y protegida. Si tienes alguna duda o inconveniente, escríbenos directamente y lo resolvemos 💜
+¡Gracias por tu paciencia y por ser parte de UniMarket!`) : null;
+
+  // ── Abrir WhatsApp al vendedor ────────────────────────────
+  const waVendedorLink = stage === '12h' ? `https://wa.me/${wa}?text=${msgVendedor12}`
+                       : stage === '6h'  ? `https://wa.me/${wa}?text=${msgVendedor6}`
+                       : `https://wa.me/${wa}?text=${msgVendedor0}`;
+
+  if (wa && wa !== 'undefined') {
+    setTimeout(() => window.open(waVendedorLink, '_blank'), 800);
+  }
+
+  // ── Abrir WhatsApp al comprador en 6h y 0h ────────────────
+  if ((stage === '6h' || stage === '0h') && buyerWA) {
+    const waCompradorLink = stage === '6h'
+      ? `https://wa.me/${buyerWA}?text=${msgComprador6}`
+      : `https://wa.me/${buyerWA}?text=${msgComprador0}`;
+    setTimeout(() => window.open(waCompradorLink, '_blank'), 2000);
+  }
+}
+
+// Iniciar ticker cada segundo para actualizar contadores
+let _commTicker = null;
+function startCommTicker() {
+  if (_commTicker) return;
+  _commTicker = setInterval(() => {
+    // Actualizar solo los spans de countdown sin re-renderizar toda la tabla
+    document.querySelectorAll('[data-comm-id]').forEach(el => {
+      const id = el.dataset.commId;
+      const c = commissions.find(x => x.firestoreId === id);
+      if (!c || !c.createdAt) return;
+      const ms = getCommMsRemaining(c);
+      const fmt = formatCountdown(ms || 0);
+      el.className = 'comm-countdown ' + fmt.cls;
+      el.textContent = fmt.text;
+    });
+    checkCommissionAlerts();
+  }, 1000);
+}
+
+// ===== ADMIN TABLES =====
+function renderRatingsAdmin() {
+  const el = document.getElementById('ratingsAdminContent');
+  if (!el) return;
+  const countEl = document.getElementById('ratingsCount');
+  if (countEl) countEl.textContent = ratings.length + ' reseñas';
+
+  if (!ratings.length) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Aún no hay calificaciones registradas.</div>';
+    return;
+  }
+
+  // Agrupar por vendedor
+  const bySeller = {};
+  ratings.forEach(r => {
+    if (!bySeller[r.seller]) bySeller[r.seller] = [];
+    bySeller[r.seller].push(r);
+  });
+
+  el.innerHTML = Object.entries(bySeller).map(([seller, rs]) => {
+    const avg = Math.round(rs.reduce((s, r) => s + r.stars, 0) / rs.length * 10) / 10;
+    const reviews = rs.map(r => `
+      <tr>
+        <td>${r.raterName || 'Anónimo'}</td>
+        <td>${r.product || '—'}</td>
+        <td>${'★'.repeat(r.stars)}<span style="color:#D0CDE1">${'★'.repeat(5-r.stars)}</span> <strong>${r.stars}/5</strong></td>
+        <td style="color:var(--ink2);font-size:12px">${r.comment || '<em style="color:var(--muted)">Sin comentario</em>'}</td>
+        <td style="font-size:11px;color:var(--muted)">${r.createdAt ? formatDate(r.createdAt) : '—'}</td>
+      </tr>`).join('');
+    return `
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
+          <div style="font-weight:700;font-size:14px">${seller}</div>
+          <div style="color:#FFB800;font-size:14px">${'★'.repeat(Math.floor(avg))}</div>
+          <div style="font-size:13px;color:var(--ink2)"><strong>${avg}</strong> / 5</div>
+          <div style="font-size:11px;color:var(--muted)">(${rs.length} reseña${rs.length>1?'s':''})</div>
+        </div>
+        <table style="width:100%">
+          <thead><tr><th>Comprador</th><th>Producto</th><th>Estrellas</th><th>Comentario</th><th>Fecha</th></tr></thead>
+          <tbody>${reviews}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+}
+
+function renderAdminTables() {
+  // Commissions
+  document.getElementById('commTable').innerHTML = commissions.map((c,i) => {
+    const qtyMatch = c.product.match(/×(\d+)$/);
+    const qtyBadge = qtyMatch ? `<span style="display:inline-block;background:var(--purple);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px">×${qtyMatch[1]}</span>` : '';
+    const productName = qtyMatch ? c.product.replace(/\s×\d+$/, '') : c.product;
+
+    // Calcular estado real desde createdAt
+    const ms = getCommMsRemaining(c);
+    let statusTag, statusLabel, rowStyle = '';
+    if (ms === null) {
+      // Sin fecha (seed data legacy): usar campo status
+      statusTag = c.status === 'overdue' ? 'overdue' : 'pending';
+      statusLabel = c.status === 'overdue' ? '⛔ Vencido' : '⏳ Pendiente';
+    } else if (ms <= 0) {
+      statusTag = 'overdue'; statusLabel = '⛔ Vencido'; rowStyle = 'background:var(--coral-bg);';
+    } else if (ms / 3600000 < 6) {
+      statusTag = 'critical'; statusLabel = '🔴 Crítico'; rowStyle = 'background:#FFF0EE;';
+    } else if (ms / 3600000 < 12) {
+      statusTag = 'warn-tag'; statusLabel = '🟠 Advertido'; rowStyle = 'background:#FFF9EE;';
+    } else {
+      statusTag = 'pending'; statusLabel = '⏳ Pendiente';
+    }
+
+    const isOverdue = (ms !== null && ms <= 0) || (ms === null && c.status === 'overdue');
+    const isCritical = ms !== null && ms > 0 && ms / 3600000 < 6;
+    const countdownId = c.firestoreId || ('legacy_' + i);
+
+    let countdownCell = '';
+    if (ms !== null) {
+      const fmt = formatCountdown(ms);
+      countdownCell = `<span class="comm-countdown ${fmt.cls}" data-comm-id="${countdownId}">${fmt.text}</span>`;
+    } else {
+      countdownCell = `<span style="color:var(--muted);font-size:12px">${c.remaining || '—'}</span>`;
+    }
+
+    return `<tr style="${rowStyle}">
+      <td><strong>${c.seller}</strong></td>
+      <td>${productName}${qtyBadge}</td>
+      <td><span class="tag tag-${c.plan.toLowerCase()}">${c.plan==='A'?'Plan A':'Plan B'}</span></td>
+      <td><strong>${c.amount}</strong></td>
+      <td>${countdownCell}</td>
+      <td><span class="tag tag-${statusTag}">${statusLabel}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn-sm btn-ok" onclick="markPaid(${i})">✅ Recibido</button>
+        <button class="btn-sm btn-wa-admin" onclick="contactSellerWA(${i})" title="${c.sellerWA ? c.sellerWA : 'Sin número registrado'}">📲 Cobrar</button>
+        ${isOverdue || isCritical ? `<button class="btn-sm btn-warn" onclick="sendWarnWA(${i})">⚠️ Avisar WA</button>` : `<button class="btn-sm btn-warn" onclick="sendWarnWA(${i})">📣 Recordar</button>`}
+        ${isOverdue ? `<button class="btn-sm btn-susp" onclick="suspendAndDelete(${i})">🚫 Suspender y eliminar</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Publications - con filtro activo
+  let pubTableHTML = '';
+  const showPendB = pubFilter === 'todas' || pubFilter === 'plan-b';
+  const showActive = pubFilter === 'todas' || pubFilter === 'plan-b';
+
+  if (showPendB && adminPlanBNotifs.length > 0) {
+    pubTableHTML += adminPlanBNotifs.map((p, i) => `
+      <tr style="background:#E0F7EF">
+        <td>🆕 ${p.product}</td>
+        <td>${p.seller}</td>
+        <td>${p.cat || '—'}</td>
+        <td><span class="tag tag-b">🟢 Plan B</span></td>
+        <td>${p.price || 'A consultar'}</td>
+        <td><span class="tag tag-active">🔔 Nueva</span></td>
+        <td>
+          <button class="btn-sm btn-ok" onclick="dismissPlanBNotif(${i})">✅ Visto</button>
+          <button class="btn-sm btn-susp" onclick="removePlanBPub(${i})">🗑️ Retirar</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+  if (showActive) {
+    const filteredProds = products.filter(p =>
+      pubFilter === 'todas' ? true :
+      pubFilter === 'plan-b' ? p.plan === 'B' :
+      pubFilter === 'pendiente' ? false : true
+    );
+    // Ordenar por más reciente (createdAt desc) para el filtro "todas"
+    const sortedProds = [...filteredProds].sort((a, b) => {
+      const ta = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
+      const tb = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)) : new Date(0);
+      return tb - ta;
+    });
+    pubTableHTML += sortedProds.map(p => `
+      <tr>
+        <td>${p.emoji || '📦'} ${p.title}</td>
+        <td>${p.seller}</td>
+        <td>${p.faculty || p.cat || '—'}</td>
+        <td><span class="tag tag-${p.plan.toLowerCase()}">${p.plan==='A'?'⭐ Plan A':'🟢 Plan B'}</span></td>
+        <td>${p.price}</td>
+        <td><span class="tag tag-active">✅ Activa</span></td>
+        <td style="font-size:12px;color:var(--ink2)">${formatDate(p.createdAt)}</td>
+        <td><button class="btn-sm btn-susp" onclick="pauseProduct('${p.firestoreId||p.id}', this)">⏸ Pausar</button></td>
+      </tr>
+    `).join('');
+  }
+  if (!pubTableHTML) {
+    pubTableHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Sin publicaciones en este filtro</td></tr>';
+  }
+  document.getElementById('pubTable').innerHTML = pubTableHTML;
+
+  // Badge dinámico publicaciones
+  const totalPubs = products.length + adminPlanBNotifs.length;
+  const pubBadgeEl = document.querySelector('#panel-publications .card-badge');
+  if (pubBadgeEl) pubBadgeEl.textContent = totalPubs + ' publicaciones';
+  // Purchases
+  const baseCount = 18;
+  const totalPurch = baseCount + myTickets.length;
+  const purchBadge = document.getElementById('purchBadge');
+  if (purchBadge) purchBadge.textContent = totalPurch + ' este mes';
+
+  // New purchase notifications banner
+  const notifEl = document.getElementById('purchNotifs');
+  if (notifEl && purchases.length > 0) {
+    const recent = [...purchases].slice(0, 5).filter(p => !dismissedPurchNotifs.has(p.firestoreId || p.ticket));
+    if (recent.length > 0) {
+      const headerBar = `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:var(--amber-bg);border-bottom:1px solid rgba(0,0,0,0.06)">
+        <span style="font-size:12px;font-weight:600;color:var(--amber)">🔔 ${recent.length} notificación${recent.length>1?'es':''} nueva${recent.length>1?'s':''}</span>
+        <button onclick="dismissAllPurchNotifs()" style="border:none;background:transparent;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;padding:2px 8px;border-radius:6px;transition:background .15s" onmouseover="this.style.background='rgba(0,0,0,0.06)'" onmouseout="this.style.background='transparent'">Eliminar todas ✕</button>
+      </div>`;
+      notifEl.innerHTML = headerBar + recent.map(p => {
+        const isPlanB = p.plan === 'B';
+        const notifId = p.firestoreId || p.ticket;
+        const qtyMatch = p.product.match(/×(\d+)$/);
+        const qtyBadge = qtyMatch ? `<span style="display:inline-block;background:var(--purple);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px">×${qtyMatch[1]}</span>` : '';
+        const productName = qtyMatch ? p.product.replace(/\s×\d+$/, '') : p.product;
+        return `<div class="notif-row" style="position:relative">
+          <div class="notif-ico">🔔</div>
+          <div style="flex:1">
+            <strong>Nueva compra confirmada</strong> — ${productName}${qtyBadge}<br>
+            <span style="font-size:12px;color:var(--ink2)">
+              Comprador: ${p.buyer} · Ticket ${p.ticket} generado · ${formatDate(p.createdAt)}<br>
+              ${isPlanB ? '⏳ Comisión pendiente — vendedor debe pagar en 48h' : '✅ Plan A — comisión ya pagada'}
+            </span>
+          </div>
+          <button onclick="dismissPurchNotif('${notifId}')" style="flex-shrink:0;border:none;background:transparent;font-size:16px;color:var(--muted);cursor:pointer;padding:4px 8px;border-radius:6px;line-height:1;align-self:flex-start" title="Eliminar notificación">✕</button>
+        </div>`;
+      }).join('');
+    } else {
+      notifEl.innerHTML = '';
+    }
+  } else if (notifEl) {
+    notifEl.innerHTML = '';
+  }
+
+  document.getElementById('purchTable').innerHTML = purchases.map(p => {
+    const isPlanB = p.plan === 'B';
+    const commStatusLabel = p.commStatus === 'paid'
+      ? '✅ Pagada'
+      : isPlanB
+        ? '⏳ Pendiente (48h)'
+        : '✅ Pagada';
+    const commStatusTag = p.commStatus === 'paid' ? 'paid' : isPlanB ? 'pending' : 'paid';
+    return `<tr>
+      <td>${p.product}</td>
+      <td>${p.buyer}</td>
+      <td>${p.seller}</td>
+      <td><span class="tag tag-${p.plan.toLowerCase()}">${p.plan==='A'?'⭐ Plan A':'🟢 Plan B'}</span></td>
+      <td><strong>${p.comm}</strong></td>
+      <td style="font-family:Syne,sans-serif;font-weight:700;color:var(--purple)">${p.ticket}</td>
+      <td style="font-size:12px;color:var(--ink2)">${formatDate(p.createdAt)}</td>
+      <td><span class="tag tag-${commStatusTag}">${commStatusLabel}</span></td>
+    </tr>`;
+  }).join('');
+
+  // Sellers — calculado dinámicamente desde products y purchases de Firestore
+  const sellerMap = {};
+  products.forEach(p => {
+    if (!sellerMap[p.seller]) sellerMap[p.seller] = { name: p.seller, faculty: p.faculty || p.cat || '—', pubs: 0, sales: 0, totalComm: 0, status: 'active' };
+    sellerMap[p.seller].pubs++;
+  });
+  purchases.forEach(p => {
+    if (!sellerMap[p.seller]) sellerMap[p.seller] = { name: p.seller, faculty: '—', pubs: 0, sales: 0, totalComm: 0, status: 'active' };
+    sellerMap[p.seller].sales++;
+    // sumar comisión numérica
+    const commNum = parseFloat((p.comm || '').replace(/[^0-9.]/g,'').split('–')[0]) || 0;
+    sellerMap[p.seller].totalComm += commNum;
+  });
+  const dynamicSellers = Object.values(sellerMap);
+  document.getElementById('sellersTable').innerHTML = dynamicSellers.length
+    ? dynamicSellers.map(s => `
+      <tr>
+        <td><strong>${s.name}</strong></td>
+        <td>${s.faculty}</td>
+        <td>${s.pubs}</td>
+        <td>${s.sales}</td>
+        <td><strong>S/. ${s.totalComm.toFixed(2)}</strong></td>
+        <td><span class="tag ${s.status==='active'?'tag-active':'tag-pending'}">${s.status==='active'?'✅ Activo':'⚠️ Advertido'}</span></td>
+        <td>
+          <button class="btn-sm btn-warn" onclick="sendWarn('${s.name}')">⚠️</button>
+          <button class="btn-sm btn-susp" onclick="suspendUser('${s.name}')">🚫</button>
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Sin vendedores registrados aún</td></tr>';
+
+  // Badge dinámico vendedores
+  const sellersBadgeEl = document.querySelector('#panel-sellers .card-badge');
+  if (sellersBadgeEl) sellersBadgeEl.textContent = dynamicSellers.length + ' activos';
+
+  // Raffle tickets
+  document.getElementById('ticketsTable').innerHTML = raffleTickets.map(t => `
+    <tr>
+      <td>${raffleTickets.indexOf(t)+1}</td>
+      <td><strong>${t.student}</strong></td>
+      <td>${t.product}</td>
+      <td>${t.date}</td>
+      <td style="font-family:Syne,sans-serif;font-weight:700;color:var(--purple)">${t.ticket}</td>
+    </tr>
+  `).join('');
+
+  // Comisiones cobradas
+  document.getElementById('paidCommTable').innerHTML = paidCommissions.length
+    ? paidCommissions.map(c => {
+        const qtyMatch = c.product.match(/×(\d+)$/);
+        const qtyBadge = qtyMatch ? `<span style="display:inline-block;background:var(--purple);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px">×${qtyMatch[1]}</span>` : '';
+        const productName = qtyMatch ? c.product.replace(/\s×\d+$/, '') : c.product;
+        return `<tr>
+          <td><strong>${c.seller}</strong></td>
+          <td>${productName}${qtyBadge}</td>
+          <td><span class="tag tag-${c.plan.toLowerCase()}">${c.plan==='A'?'⭐ Plan A':'🟢 Plan B'}</span></td>
+          <td><strong>${c.amount}</strong></td>
+          <td>${formatDate(c.createdAt)}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sin comisiones cobradas aún</td></tr>';
+
+  // Iniciar ticker de countdown si hay comisiones con fecha
+  if (commissions.some(c => c.createdAt)) startCommTicker();
+
+  // Calificaciones
+  renderRatingsAdmin();
+}
+
+function setPubFilter(type, btn) {
+  pubFilter = type;
+  document.querySelectorAll('.pf-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  renderAdminTables();
+}
+
+async function markPaid(i) {
+  const comm = commissions[i];
+  if (!comm) return;
+  // Guardar en comisiones cobradas antes de eliminar
+  await window.DB.addPaidCommission({
+    seller: comm.seller,
+    product: comm.product,
+    plan: comm.plan,
+    amount: comm.amount
+  });
+  // Eliminar de pendientes
+  await window.DB.markCommissionPaid(comm.firestoreId);
+  // Actualizar la compra correspondiente a "paid"
+  await window.DB.updatePurchaseCommStatus(comm.seller, comm.product);
+  showToast('✅ Comisión marcada como recibida — compra actualizada a Pagada');
+}
+
+function sendWarnWA(i) {
+  const c = commissions[i];
+  if (!c) return;
+  const wa = c.sellerWA;
+  if (!wa || wa === 'undefined') {
+    showToast('⚠️ Este vendedor no tiene número de WhatsApp registrado.');
+    return;
+  }
+  const ms = getCommMsRemaining(c);
+  const h = ms !== null ? ms / 3600000 : -1;
+  const hText = h > 0 ? `${Math.floor(h)}h ${Math.floor((h % 1) * 60)}m` : null;
+  const { buyer, buyerWA } = getBuyerWA(c);
+
+  let msgVendedor;
+  if (h <= 0) {
+    // VENCIDO
+    msgVendedor = encodeURIComponent(
+`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar la comisión de *${c.amount}* por *"${c.product}"* ha *vencido* ⛔.
+Tu cuenta y publicaciones han sido *suspendidas temporalmente* en UniMarket.
+Para reactivarlas, realiza el pago a la brevedad:
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+En cuanto lo recibamos, coordinamos la reactivación de inmediato 💜 Estamos aquí para ayudarte.`);
+  } else if (h <= 6) {
+    // CRÍTICO — menos de 6h, mención de posible suspensión
+    msgVendedor = encodeURIComponent(
+`Hola ${c.seller} 🙏 Te contactamos urgente desde *UniMarket*.
+*⚠️ Solo te quedan ${hText}* para pagar tu comisión de *${c.amount}* por *"${c.product}"*.
+Si el pago no se acredita antes de que venza el plazo, tu publicación y cuenta serán *suspendidas* en la plataforma.
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+En cuanto recibamos el pago, ¡todo queda reactivado de inmediato! 🚀 Gracias por tu comprensión 💜`);
+  } else if (h <= 12) {
+    // ADVERTENCIA — 6–12h, mención de posible suspensión
+    msgVendedor = encodeURIComponent(
+`Hola ${c.seller} 😊 Te escribimos desde *UniMarket*.
+Recuerda que tienes pendiente el pago de tu comisión de *${c.amount}* por la venta de *"${c.product}"*.
+⏰ *Te quedan ${hText}* para realizarlo.
+Si no se acredita el pago a tiempo, tu cuenta podría ser *suspendida temporalmente* en la plataforma.
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+¡Estamos seguros de que lo resolverás! Cualquier consulta, aquí estamos 💜`);
+  } else {
+    // NORMAL — más de 12h, recordatorio amable con mención de suspensión
+    msgVendedor = encodeURIComponent(
+`Hola ${c.seller} 😊 Te escribimos desde *UniMarket*.
+Recuerda que tienes pendiente el pago de tu comisión de *${c.amount}* por la venta de *"${c.product}"*.
+⏰ *Te quedan ${hText}* para realizarlo. Pasado ese plazo, tu cuenta podría ser *suspendida temporalmente*.
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+¡Gracias por ser parte de UniMarket! 💜`);
+  }
+
+  window.open(`https://wa.me/${wa}?text=${msgVendedor}`, '_blank');
+  showToast(`📲 Mensaje enviado a ${c.seller} — ${hText ? hText + ' restantes' : 'VENCIDO'}`);
+
+  // Si quedan menos de 6h o está vencido, avisar también al comprador
+  if (h <= 6 && buyerWA) {
+    const msgComprador = h <= 0
+      ? encodeURIComponent(
+`Hola${buyer ? ' ' + buyer : ''} 😊 Te avisamos desde *UniMarket*.
+La cuenta del vendedor de *"${c.product}"* ha sido *suspendida temporalmente* por falta de pago de comisión.
+Tu compra está registrada y protegida. Si tienes alguna duda o inconveniente, escríbenos y lo resolvemos 💜
+¡Gracias por tu paciencia y por confiar en UniMarket!`)
+      : encodeURIComponent(
+`Hola${buyer ? ' ' + buyer : ''} 😊 Te escribimos desde *UniMarket*.
+Queremos informarte que el vendedor de *"${c.product}"* tiene pendiente el pago de su comisión de plataforma.
+⚠️ Si no se regulariza en las próximas *${hText}*, su cuenta podría ser *suspendida temporalmente*.
+Tu compra está confirmada y protegida — cualquier inconveniente lo gestionamos nosotros 💜
+¡Gracias por confiar en UniMarket!`);
+    setTimeout(() => window.open(`https://wa.me/${buyerWA}?text=${msgComprador}`, '_blank'), 1500);
+    showToast(`📲 También avisando al comprador${buyer ? ' ' + buyer : ''}`);
+  }
+}
+
+async function suspendAndDelete(i) {
+  const c = commissions[i];
+  if (!c) return;
+  if (!confirm(`¿Suspender a ${c.seller} y eliminar su publicación "${c.product}"?\nEsta acción enviará un aviso por WhatsApp.`)) return;
+  // Eliminar el producto del marketplace
+  const prod = products.find(p => p.seller === c.seller && (p.title === c.product || c.product.startsWith(p.title.substring(0,15))));
+  if (prod && prod.firestoreId) {
+    await window.DB.removeProduct(prod.firestoreId);
+  }
+  // Marcar comisión como vencida/suspendida
+  if (c.firestoreId && window.DB) {
+    await window.DB.updateCommission(c.firestoreId, { status: 'overdue', suspended: true });
+  }
+  // Aviso WA
+  const wa = c.sellerWA;
+  if (wa && wa !== 'undefined') {
+    const msg = encodeURIComponent(
+`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar tu comisión de *${c.amount}* por *"${c.product}"* ha *vencido* ⛔.
+Tu publicación ha sido *retirada del marketplace* y tu cuenta ha sido *suspendida temporalmente*.
+Si deseas reactivarla, realiza el pago pendiente:
+📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
+💬 Concepto: *Comisión UniMarket - ${c.product}*
+Con gusto te reactivamos en cuanto acreditemos el pago 💜 ¡Gracias por tu comprensión!`);
+    window.open(`https://wa.me/${wa}?text=${msg}`, '_blank');
+  }
+  showToast(`🚫 ${c.seller} suspendido — publicación eliminada del marketplace`);
+}
+
+function suspendUser(name) { showToast(`🚫 Cuenta de ${name} suspendida`); }
+
+function contactSellerWA(i) {
+  const comm = commissions[i];
+  if (!comm) return;
+  const wa = comm.sellerWA;
+  if (!wa || wa === 'undefined') {
+    showToast('⚠️ Este vendedor no tiene número de WhatsApp registrado.');
+    return;
+  }
+  const msg = encodeURIComponent(
+`🎉 ¡Felicitaciones por tu venta en UniMarket!
+Tu producto "${comm.product}" acaba de ser confirmado como vendido. 🛍️
+Para mantener tu cuenta activa y seguir vendiendo, recuerda pagar la comisión simbólica de ${comm.amount} en las próximas 48 horas a:
+📱 Yape / Plin: 973 793 230
+👤 Bryan Quintero
+Escribe en el concepto: Comisión UniMarket - ${comm.product}
+¡Gracias por ser parte de UniMarket! 💜`
+  );
+  window.open(`https://wa.me/${wa}?text=${msg}`, '_blank');
+}
+
+function dismissPurchNotif(id) {
+  dismissedPurchNotifs.add(id);
+  renderAdminTables();
+}
+function dismissAllPurchNotifs() {
+  purchases.slice(0, 5).forEach(p => dismissedPurchNotifs.add(p.firestoreId || p.ticket));
+  renderAdminTables();
+}
+async function pauseProduct(id, btn) {
+  if (!id || id === 'undefined') { showToast('⚠️ No se puede pausar este producto.'); return; }
+  if (!confirm('¿Pausar esta publicación? Se ocultará del marketplace.')) return;
+  await window.DB.removeProduct(id);
+  showToast('⏸ Publicación pausada y retirada del marketplace.');
+}
+
+// ===== RAFFLE =====
+async function doRaffle() {
+  const all = [...raffleTickets];
+  if (!all.length) { showToast('⚠️ No hay tickets esta semana.'); return; }
+  const winner = all[Math.floor(Math.random() * all.length)];
+  const box = document.getElementById('winnerBox');
+  box.style.display = 'block';
+  document.getElementById('winnerName').textContent = '🏆 ' + winner.student;
+  document.getElementById('winnerDetail').textContent = `Ticket ${winner.ticket} · Premio: 💸 S/. 10 por Yape`;
+  showToast(`🎉 ¡Ganador: ${winner.student}! Ticket ${winner.ticket}`);
+
+  // Buscar WA del ganador en colección users
+  const btnContact = document.getElementById('btnContactWinner');
+  btnContact.style.display = 'none';
+  if (winner.buyerUid && window.DB) {
+    try {
+      const profile = await window.DB.getUserProfile(winner.buyerUid);
+      if (profile && profile.wa) {
+        const msg = encodeURIComponent(`🎉 ¡Felicitaciones ${winner.student}! Ganaste el sorteo semanal de UniMarket con el ticket ${winner.ticket}. Premio: S/. 10 por Yape. ¡Coordina con nosotros! 💜`);
+        btnContact.href = `https://wa.me/${profile.wa}?text=${msg}`;
+        btnContact.style.display = 'flex';
+      } else {
+        showToast('⚠️ El ganador no tiene número WA registrado.');
+      }
+    } catch(e) { console.error(e); }
+  }
+
+  // Borrar todos los tickets de Firestore
+  if (!confirm(`¿Confirmar a ${winner.student} como ganador y borrar todos los tickets?`)) return;
+  await window.DB.clearRaffleTickets();
+  showToast('🗑️ Tickets eliminados. ¡Nueva semana lista!');
+}
+
+// ===== HELPERS =====
+function formatDate(ts) {
+  if (!ts) return '—';
+  const date = ts.toDate ? ts.toDate() : new Date(ts);
+  const now = new Date();
+  const diff = now - date;
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return 'Ahora';
+  if (mins < 60) return `Hace ${mins} min`;
+  if (hours < 24) return `Hoy ${date.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})}`;
+  if (days === 1) return `Ayer ${date.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})}`;
+  return date.toLocaleDateString('es-PE',{day:'2-digit',month:'short'}) + ' ' + date.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+}
+
+// ===== TOAST =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+// ===== INIT =====
+// Los datos se cargan desde Firestore via onSnapshot (módulo ES arriba).
+// Si Firestore está vacío (primera vez), sembramos los productos de demo.
+// Esto ocurre después de que el usuario inicia sesión.
+async function seedIfEmpty() {
+  // Esperar a que DB esté disponible
+  if (!window.DB) { setTimeout(seedIfEmpty, 500); return; }
+  // Si ya hay productos en Firestore, no sembrar
+  if (products.length > 0) return;
+  // Esperar 2 segundos para que el listener llene products[]
+  await new Promise(r => setTimeout(r, 2000));
+  if (products.length > 0) return;
+  // Sembrar datos demo
+  for (const p of _seedProducts) {
+    const {id, ...rest} = p;
+    await window.DB.addProduct(rest);
+  }
+  for (const c of _seedCommissions) {
+    await window.DB.addCommission(c);
+  }
+  for (const p of _seedPurchases) {
+    await window.DB.addPurchase(p);
+  }
+  showToast('✨ Datos de demo cargados en la nube');
+}
+
+// Esperar a que Firebase Auth esté listo antes de intentar seedear
+document.addEventListener('DOMContentLoaded', () => {
+  // Mostrar productos locales mientras carga (UX)
+  renderProducts();
+  renderAdminTables();
+  // Cuando el usuario se autentique, el módulo ES llama initRealtimeListeners()
+  // que llena los arrays y re-renderiza automáticamente.
+  // Después de autenticarse, intentar sembrar si está vacío:
+  const checkSeed = setInterval(() => {
+    if (window.DB && window.DB.getCurrentUser()) {
+      clearInterval(checkSeed);
+      seedIfEmpty();
+    }
+  }, 1000);
+});
+</script>
+</body>
+</html>
