@@ -876,6 +876,7 @@ select.pf-input{cursor:pointer}
     <button class="f-chip" onclick="setUserFilter('musica',this)">🎵 Arte</button>
     <button class="f-chip" onclick="setUserFilter('gaming',this)">🎮 Gaming</button>
     <button class="f-chip" onclick="setUserFilter('salud',this)">🌿 Salud</button>
+    <button class="f-chip" onclick="setUserFilter('mascotas',this)">🐾 Mascotas</button>
     <button class="f-chip" onclick="setUserFilter('otros',this)">🛠️ Otros</button>
   </div>
 
@@ -1183,6 +1184,7 @@ select.pf-input{cursor:pointer}
         <option value="musica">🎵 Arte y música</option>
         <option value="gaming">🎮 Entretenimiento / Gaming</option>
         <option value="salud">🌿 Salud y bienestar</option>
+        <option value="mascotas">🐾 Mascotas</option>
         <option value="otros">🛠️ Otros</option>
       </select>
       <label class="pf-label">Condición del artículo</label>
@@ -1330,6 +1332,7 @@ select.pf-input{cursor:pointer}
         <option value="musica">🎵 Arte y música</option>
         <option value="gaming">🎮 Entretenimiento / Gaming</option>
         <option value="salud">🌿 Salud y bienestar</option>
+        <option value="mascotas">🐾 Mascotas</option>
         <option value="otros">🛠️ Otros</option>
       </select>
       <label class="pf-label">Condición del artículo</label>
@@ -1343,6 +1346,15 @@ select.pf-input{cursor:pointer}
       <input class="pf-input" type="text" id="editCondOtroText" placeholder="Describe la condición del artículo..." style="display:none;margin-top:-4px">
       <label class="pf-label">Precio (S/.)</label>
       <input class="pf-input" type="number" id="editPubPrice" placeholder="Ej: 45">
+      <div style="display:flex;align-items:center;gap:10px;margin-top:-4px;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--ink2)" onclick="toggleEditPriceUnit()">
+          <div style="position:relative;width:36px;height:20px;flex-shrink:0">
+            <div id="editPuTrack" style="width:36px;height:20px;border-radius:99px;background:#D0CDE1;transition:background .2s"></div>
+            <div id="editPuThumb" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);transition:left .2s"></div>
+          </div>
+          <span id="editPuLabel" style="user-select:none">💡 Precio por hora (tutoría / servicio)</span>
+        </label>
+      </div>
       <label class="pf-label">Descripción del producto</label>
       <textarea class="pf-input" id="editPubDesc" rows="3" placeholder="Ej: Estado: buen estado, pocas marcas de uso." style="resize:vertical;min-height:70px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;line-height:1.5"></textarea>
       <label class="pf-label">Tu WhatsApp</label>
@@ -1545,6 +1557,7 @@ const costMap = {
   gaming:{label:'S/. 1.00',note:'Entretenimiento / Gaming'},
   salud:{label:'S/. 1.00',note:'Salud y bienestar'},
   otros:{label:'S/. 1.00',note:'Según precio declarado'},
+  mascotas:{label:'S/. 1.00',note:'Según precio declarado'},
 };
 
 // ===== STATE =====
@@ -2475,6 +2488,15 @@ function togglePriceUnit() {
   updatePubCost();
 }
 
+function toggleEditPriceUnit() {
+  _editPriceUnit = _editPriceUnit === 'unit' ? 'hour' : 'unit';
+  const isHour = _editPriceUnit === 'hour';
+  document.getElementById('editPuTrack').style.background = isHour ? 'var(--teal)' : '#D0CDE1';
+  document.getElementById('editPuThumb').style.left = isHour ? '18px' : '2px';
+  document.getElementById('editPuLabel').textContent = isHour ? '✅ Precio por hora activado' : '💡 Precio por hora (tutoría / servicio)';
+  document.getElementById('editPubPrice').placeholder = isHour ? 'Ej: 25 (por hora)' : 'Ej: 45';
+}
+
 function selectPlan(p) {
   selectedPlan = p;
   document.getElementById('planBbtn').className = 'pf-plan' + (p==='B'?' selected-b':'');
@@ -2519,7 +2541,7 @@ async function doPublish() {
   };
   const cInfo = condMap[selectedCondition] || {badge:'badge-used',label:'Usado'};
 
-  const catEmojis = {libros:'📘',tecnologia:'💻',apuntes:'📝',comida:'🍱',servicios:'🎨',ropa:'👕',utiles:'🖊️',deporte:'🏋️',musica:'🎵',gaming:'🎮',salud:'🌿',otros:'🛠️'};
+  const catEmojis = {libros:'📘',tecnologia:'💻',apuntes:'📝',comida:'🍱',servicios:'🎨',ropa:'👕',utiles:'🖊️',deporte:'🏋️',musica:'🎵',gaming:'🎮',salud:'🌿',mascotas:'🐾',otros:'🛠️'};
   const emoji = catEmojis[cat] || '📦';
 
   const price = document.getElementById('pubPrice').value;
@@ -2573,6 +2595,7 @@ function resetPublishForm() {
 let _editProductId = null;
 let _editCondition = null;
 let _editImgState = null; // { img: HTMLImageElement, offsetX, offsetY, scale, fitMode }
+let _editPriceUnit = 'unit'; // 'unit' | 'hour'
 
 async function deleteMyProduct(firestoreId, title) {
   // Verify ownership before deleting
@@ -2603,6 +2626,14 @@ function openEditProduct(firestoreId) {
   document.getElementById('editPubPrice').value = p.priceN || '';
   document.getElementById('editPubDesc').value = p.desc || '';
   document.getElementById('editPubWA').value = p.wa || '';
+
+  // Price unit toggle
+  _editPriceUnit = p.priceUnit === 'hour' ? 'hour' : 'unit';
+  const editIsHour = _editPriceUnit === 'hour';
+  document.getElementById('editPuTrack').style.background = editIsHour ? 'var(--teal)' : '#D0CDE1';
+  document.getElementById('editPuThumb').style.left = editIsHour ? '18px' : '2px';
+  document.getElementById('editPuLabel').textContent = editIsHour ? '✅ Precio por hora activado' : '💡 Precio por hora (tutoría / servicio)';
+  document.getElementById('editPubPrice').placeholder = editIsHour ? 'Ej: 25 (por hora)' : 'Ej: 45';
 
   // Condition buttons
   document.querySelectorAll('#editCondRow .cond-btn').forEach(b => b.classList.remove('on-used','on-new','on-food','on-svc','on-other'));
@@ -2755,7 +2786,7 @@ async function doEditProduct() {
     Otro:{badge:'badge-used',label: otroText || 'Otro'},
   };
   const cInfo = condMap[_editCondition] || {badge:'badge-used',label:'Usado'};
-  const catEmojis = {libros:'📘',tecnologia:'💻',apuntes:'📝',comida:'🍱',servicios:'🎨',ropa:'👕',utiles:'🖊️',deporte:'🏋️',musica:'🎵',gaming:'🎮',salud:'🌿',otros:'🛠️'};
+  const catEmojis = {libros:'📘',tecnologia:'💻',apuntes:'📝',comida:'🍱',servicios:'🎨',ropa:'👕',utiles:'🖊️',deporte:'🏋️',musica:'🎵',gaming:'🎮',salud:'🌿',mascotas:'🐾',otros:'🛠️'};
 
   let imgSrc = undefined; // undefined = no cambiar
   const editCanvas = document.getElementById('editImgCanvas');
@@ -2772,8 +2803,9 @@ async function doEditProduct() {
   const updates = {
     title: name, cat,
     emoji: catEmojis[cat] || '📦',
-    price: price ? `S/. ${price}` : 'A consultar',
+    price: price ? (_editPriceUnit === 'hour' ? `S/. ${price}/hr` : `S/. ${price}`) : 'A consultar',
     priceN: parseFloat(price) || 0,
+    priceUnit: _editPriceUnit,
     badge: cInfo.badge, label: cInfo.label,
     desc, wa: waInput || ADMIN_WA,
   };
