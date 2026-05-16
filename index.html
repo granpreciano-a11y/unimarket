@@ -664,6 +664,7 @@ select.pf-input{cursor:pointer}
 .pf-plan-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;margin-bottom:4px}
 .pf-plan-cost{font-size:11px;color:var(--muted)}
 .pf-cost-box{background:var(--purple-bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--upn-black);font-weight:600;margin-bottom:14px;text-align:center;border-left:3px solid var(--upn-yellow)}
+.pu-on #puTrack{background:var(--teal)!important}.pu-on #puThumb{left:18px!important}
 .btn-publish{width:100%;background:var(--upn-yellow);color:var(--upn-black);border:none;border-radius:10px;padding:13px;font-family:'Syne',sans-serif;font-size:14px;font-weight:800;cursor:pointer}
 /* IMAGE UPLOAD */
 .img-upload-area{border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;background:var(--bg);position:relative;overflow:hidden;height:130px;display:flex;align-items:center;justify-content:center}
@@ -1108,14 +1109,15 @@ select.pf-input{cursor:pointer}
     <div class="modal-product" id="confirmProduct" style="margin:10px 0;padding:10px"></div>
 
     <!-- QUANTITY SELECTOR -->
-    <div style="margin-bottom:10px">
-      <label class="pf-label">Cantidad</label>
+    <div style="margin-bottom:10px" id="qtySection">
+      <label class="pf-label" id="qtyLabel">Cantidad</label>
       <div class="qty-row">
         <button class="qty-btn" onclick="changeQty(-1)">−</button>
         <div class="qty-val" id="qtyVal">1</div>
         <button class="qty-btn" onclick="changeQty(1)">+</button>
-        <span style="font-size:12px;color:var(--muted)">unidades</span>
+        <span style="font-size:12px;color:var(--muted)" id="qtyUnit">unidades</span>
       </div>
+      <div id="totalPriceBox" style="display:none;margin-top:8px;background:var(--teal-bg);border:1.5px solid #99E8CC;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700;color:var(--teal);text-align:center"></div>
     </div>
 
     <div class="raffle-reward" style="padding:8px 12px;margin-bottom:10px;font-size:11.5px">🎰 <span>Al confirmar ganas <strong>1 ticket</strong> al sorteo. Premio: <strong id="raffPrize"></strong></span></div>
@@ -1185,6 +1187,15 @@ select.pf-input{cursor:pointer}
       <input class="pf-input" type="text" id="condOtroText" placeholder="Describe la condición del artículo..." style="display:none;margin-top:-4px">
       <label class="pf-label">Precio (S/.)</label>
       <input class="pf-input" type="number" id="pubPrice" placeholder="Ej: 45" oninput="updatePubCost()">
+      <div style="display:flex;align-items:center;gap:10px;margin-top:-4px;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--ink2)" onclick="togglePriceUnit()">
+          <div style="position:relative;width:36px;height:20px;flex-shrink:0">
+            <div id="puTrack" style="width:36px;height:20px;border-radius:99px;background:#D0CDE1;transition:background .2s"></div>
+            <div id="puThumb" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);transition:left .2s"></div>
+          </div>
+          <span id="puLabel" style="user-select:none">💡 Precio por hora (tutoría / servicio)</span>
+        </label>
+      </div>
       <label class="pf-label">Descripción del producto</label>
       <textarea class="pf-input" id="pubDesc" rows="3" placeholder="Ej: Estado: buen estado, pocas marcas de uso. Condición: completo con todos los accesorios. Motivo de venta: ya no lo necesito." style="resize:vertical;min-height:70px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;line-height:1.5"></textarea>
       <label class="pf-label">Tu carrera</label>
@@ -1534,6 +1545,7 @@ let pubFilter = 'todas'; // filtro activo en panel publicaciones
 let selectedProduct = null;
 let myTickets = [];
 let selectedPlan = null;
+let priceUnit = 'unit'; // 'unit' | 'hour'
 let selectedCondition = null;
 let selectedQty = 1;
 let myPublications = [];
@@ -2069,9 +2081,17 @@ function openConfirm(id) {
 
 
 
+  // Horas vs unidades
+  const isHourly = selectedProduct.priceUnit === 'hour';
+  document.getElementById('qtyLabel').textContent = isHourly ? 'Número de horas' : 'Cantidad';
+  document.getElementById('qtyUnit').textContent  = isHourly ? 'hora(s)' : 'unidades';
+  selectedQty = 1;
+  document.getElementById('qtyVal').textContent = 1;
+  updateTotalPrice();
+
   // WhatsApp link
   const waNum = selectedProduct.wa || ADMIN_WA;
-  const waMsg = encodeURIComponent(`Hola! Vi tu publicación "${selectedProduct.title}" en UniMarket y me interesa. ¿Está disponible?`);
+  const waMsg = encodeURIComponent(isHourly ? `Hola! Vi tu publicación "${selectedProduct.title}" en UniMarket. Me interesan ${selectedQty} hora${selectedQty>1?'s':''}, ¿tienes disponibilidad?` : `Hola! Vi tu publicación "${selectedProduct.title}" en UniMarket y me interesa. ¿Está disponible?`);
   document.getElementById('btnWA').href = `https://wa.me/${waNum}?text=${waMsg}`;
   document.getElementById('confirmOverlay').classList.add('open');
 }
@@ -2081,8 +2101,21 @@ function closeConfirm(e) {
 }
 
 function changeQty(delta) {
-  selectedQty = Math.max(1, Math.min(10, selectedQty + delta));
+  const isHourly = selectedProduct && selectedProduct.priceUnit === 'hour';
+  const max = isHourly ? 12 : 10;
+  selectedQty = Math.max(1, Math.min(max, selectedQty + delta));
   document.getElementById('qtyVal').textContent = selectedQty;
+  updateTotalPrice();
+}
+
+function updateTotalPrice() {
+  const box = document.getElementById('totalPriceBox');
+  if (!selectedProduct || selectedProduct.priceUnit !== 'hour') { box.style.display = 'none'; return; }
+  const priceN = selectedProduct.priceN || 0;
+  if (!priceN) { box.style.display = 'none'; return; }
+  const total = priceN * selectedQty;
+  box.style.display = '';
+  box.textContent = `⏱ Total: S/. ${total.toFixed(2)} (${selectedQty} hora${selectedQty>1?'s':''} × S/. ${priceN}/hr)`;
 }
 
 async function doPurchase() {
@@ -2093,8 +2126,14 @@ async function doPurchase() {
   myTickets.push({product: selectedProduct.title, ticket: num});
   renderTickets();
 
+  const isHourlyPurch = selectedProduct.priceUnit === 'hour';
+  const qtyLabel = isHourlyPurch
+    ? ` · ${selectedQty}h`
+    : (selectedQty > 1 ? ` ×${selectedQty}` : '');
+  const productWithQty = selectedProduct.title + qtyLabel;
+
   const purchaseData = {
-    product: selectedProduct.title + (selectedQty > 1 ? ` ×${selectedQty}` : ''),
+    product: productWithQty,
     buyer: me,
     seller: selectedProduct.seller,
     plan: 'B',
@@ -2103,8 +2142,6 @@ async function doPurchase() {
     commStatus: 'pending'
   };
   await window.DB.addPurchase(purchaseData);
-
-  const productWithQty = selectedProduct.title + (selectedQty > 1 ? ` ×${selectedQty}` : '');
 
   // Plan B: crear comisión pendiente para que el admin la cobre después
   await window.DB.addCommission({
@@ -2400,6 +2437,18 @@ function selectCond(cond, btn) {
   otroField.style.display = cond === 'Otro' ? '' : 'none';
   if (cond !== 'Otro') otroField.value = '';
 }
+function togglePriceUnit() {
+  priceUnit = priceUnit === 'unit' ? 'hour' : 'unit';
+  const isHour = priceUnit === 'hour';
+  const form = document.getElementById('pubPrice')?.closest('.publish-form');
+  if (form) form.classList.toggle('pu-on', isHour);
+  document.getElementById('puTrack').style.background = isHour ? 'var(--teal)' : '#D0CDE1';
+  document.getElementById('puThumb').style.left = isHour ? '18px' : '2px';
+  document.getElementById('puLabel').textContent = isHour ? '✅ Precio por hora activado' : '💡 Precio por hora (tutoría / servicio)';
+  document.getElementById('pubPrice').placeholder = isHour ? 'Ej: 25 (por hora)' : 'Ej: 45';
+  updatePubCost();
+}
+
 function selectPlan(p) {
   selectedPlan = p;
   document.getElementById('planBbtn').className = 'pf-plan' + (p==='B'?' selected-b':'');
@@ -2449,10 +2498,13 @@ async function doPublish() {
 
   const price = document.getElementById('pubPrice').value;
   const comm = costMap[cat] ? costMap[cat].label : 'S/. 1.00';
+  const isHourly = priceUnit === 'hour';
+  const priceDisplay = price ? (isHourly ? `S/. ${price}/hr` : `S/. ${price}`) : 'A consultar';
   const newProd = {
     emoji, title: name,
-    price: price ? `S/. ${price}` : 'A consultar',
+    price: priceDisplay,
     priceN: parseFloat(price) || 0,
+    priceUnit: priceUnit,
     cat, badge: cInfo.badge, label: cInfo.label,
     seller: me, sellerUid: window.DB.getCurrentUser().uid,
     faculty,
@@ -2478,6 +2530,11 @@ function resetPublishForm() {
   document.getElementById('pubFaculty').value = '';
   selectedPlan = 'B';
   selectedCondition = null;
+  priceUnit = 'unit';
+  document.getElementById('puTrack').style.background = '#D0CDE1';
+  document.getElementById('puThumb').style.left = '2px';
+  document.getElementById('puLabel').textContent = '💡 Precio por hora (tutoría / servicio)';
+  document.getElementById('pubPrice').placeholder = 'Ej: 45';
   document.getElementById('planBbtn').className = 'pf-plan selected-b';
   document.getElementById('pubCostBox').textContent = 'Selecciona categoría para ver el costo';
   document.querySelectorAll('.cond-btn').forEach(b => b.className = 'cond-btn');
