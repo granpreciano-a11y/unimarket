@@ -420,7 +420,6 @@ window.dispatchEvent(new Event('dbReady'));
         <button class="news-tab" onclick="switchTab('sanmarcos',this)">🏛️ San Marcos</button>
         <button class="news-tab" onclick="switchTab('pucp',this)">✝️ PUCP</button>
         <button class="news-tab" onclick="switchTab('upc',this)">💻 UPC</button>
-        <button class="news-tab" id="tabOtras" onclick="switchTab('otras',this)">🏫 Otras Unis</button>
         <button class="news-tab" onclick="switchTab('peru',this)">🇵🇪 Perú Hoy</button>
       </div>
     </div>
@@ -2136,148 +2135,113 @@ const newsCache = {};
 
 const TAB_COLORS = {
   upn: '#F5B800', sanmarcos: '#8B0000', pucp: '#003087',
-  upc: '#00529B', otras: '#2DB86A', peru: '#E03A2A'
+  upc: '#00529B', peru: '#E03A2A'
 };
 
-// Proxies de fallback — se prueban en orden hasta que uno responda
-const RSS_PROXIES = [
-  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-];
+// rss2json.com soporta CORS y convierte RSS a JSON directamente
+const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 const NEWS_SOURCES = {
   upn: [
-    { url: 'https://news.google.com/rss/search?q=UPN+Universidad+Privada+Norte+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
-    { url: 'https://news.google.com/rss/search?q=UPN+Lima+universidad+noticias&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
-    { url: 'https://news.google.com/rss/search?q=educacion+superior+Peru+revistas+academicas&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Revistas Edu' },
-    { url: 'https://news.google.com/rss/search?q=ciencia+investigacion+Peru+universitario+revista&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Revistas Ciencia' }
+    'https://news.google.com/rss/search?q=UPN+Universidad+Privada+Norte+Peru&hl=es-419&gl=PE&ceid=PE:es-419',
+    'https://news.google.com/rss/search?q=UPN+Lima+universidad+academico&hl=es-419&gl=PE&ceid=PE:es-419'
   ],
   sanmarcos: [
-    { url: 'https://news.google.com/rss/search?q=San+Marcos+universidad+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
-    { url: 'https://news.google.com/rss/search?q=UNMSM+toma+huelga+Lima&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' }
+    'https://news.google.com/rss/search?q=San+Marcos+UNMSM+universidad+Peru&hl=es-419&gl=PE&ceid=PE:es-419',
+    'https://news.google.com/rss/search?q=UNMSM+Lima+estudiantes+facultad&hl=es-419&gl=PE&ceid=PE:es-419'
   ],
   pucp: [
-    { url: 'https://news.google.com/rss/search?q=PUCP+Universidad+Católica+Lima&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
-    { url: 'https://news.google.com/rss/search?q=Pontificia+Católica+Peru+noticias&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' }
+    'https://news.google.com/rss/search?q=PUCP+Pontificia+Católica+Lima&hl=es-419&gl=PE&ceid=PE:es-419',
+    'https://news.google.com/rss/search?q=PUCP+Peru+noticias+academico&hl=es-419&gl=PE&ceid=PE:es-419'
   ],
   upc: [
-    { url: 'https://news.google.com/rss/search?q=UPC+universidad+Lima+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
-    { url: 'https://news.google.com/rss/search?q=Universidad+Peruana+Ciencias+Aplicadas&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' }
-  ],
-  otras: [
-    { url: 'https://news.google.com/rss/search?q=Universidad+Lima+noticias&hl=es-419&gl=PE&ceid=PE:es-419', label: 'U. Lima' },
-    { url: 'https://news.google.com/rss/search?q=USIL+UTP+universidades+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'USIL/UTP' },
-    { url: 'https://news.google.com/rss/search?q=universidades+Peru+ranking+becas&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Rankings' }
+    'https://news.google.com/rss/search?q=UPC+Universidad+Peruana+Ciencias+Aplicadas&hl=es-419&gl=PE&ceid=PE:es-419',
+    'https://news.google.com/rss/search?q=UPC+Lima+ingenieria+negocios&hl=es-419&gl=PE&ceid=PE:es-419'
   ],
   peru: [
-    { url: 'https://news.google.com/rss/search?q=Peru+noticias+hoy&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Perú' },
-    { url: 'https://news.google.com/rss/search?q=economia+empleo+Peru+hoy&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Economía' },
-    { url: 'https://news.google.com/rss/search?q=tecnologia+inteligencia+artificial+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Tech' }
+    'https://news.google.com/rss/search?q=Peru+politica+gobierno+2026&hl=es-419&gl=PE&ceid=PE:es-419',
+    'https://news.google.com/rss/search?q=Peru+economia+seguridad+sociedad+hoy&hl=es-419&gl=PE&ceid=PE:es-419',
+    'https://news.google.com/rss/search?q=Peru+actualidad+noticias+Lima&hl=es-419&gl=PE&ceid=PE:es-419'
   ]
 };
 
 function categorizarNoticia(titulo) {
   const t = titulo.toLowerCase();
-  if (t.includes('beca') || t.includes('financ') || t.includes('descuento') || t.includes('bolsa')) return 'Becas';
-  if (t.includes('deport') || t.includes('olimp') || t.includes('campeona') || t.includes('futbol') || t.includes('fútbol')) return 'Deportes';
-  if (t.includes('cultur') || t.includes('arte') || t.includes('música') || t.includes('festival') || t.includes('teatro')) return 'Cultura';
-  if (t.includes('convenio') || t.includes('acuerdo') || t.includes('alianza') || t.includes('firma')) return 'Convenios';
-  if (t.includes('event') || t.includes('feria') || t.includes('taller') || t.includes('congreso') || t.includes('seminario')) return 'Eventos';
-  if (t.includes('econom') || t.includes('empleo') || t.includes('trabajo') || t.includes('empresa')) return 'Economía';
+  if (t.includes('beca') || t.includes('financ') || t.includes('bolsa')) return 'Becas';
+  if (t.includes('deport') || t.includes('futbol') || t.includes('olimp')) return 'Deportes';
+  if (t.includes('cultur') || t.includes('arte') || t.includes('festival')) return 'Cultura';
+  if (t.includes('econom') || t.includes('empleo') || t.includes('precio') || t.includes('sueldo')) return 'Economia';
+  if (t.includes('segur') || t.includes('crimen') || t.includes('policia') || t.includes('delito')) return 'Seguridad';
+  if (t.includes('politic') || t.includes('gobierno') || t.includes('congreso') || t.includes('presidente')) return 'Politica';
   if (t.includes('ciencia') || t.includes('tecnolog') || t.includes('investig') || t.includes('innova')) return 'Ciencia';
-  return 'Académico';
+  if (t.includes('event') || t.includes('feria') || t.includes('congreso') || t.includes('seminario')) return 'Eventos';
+  return 'Academico';
 }
 
-function formatearFechaRSS(dateStr) {
-  if (!dateStr) return '—';
+function formatFecha(pubDate) {
+  if (!pubDate) return 'Reciente';
   try {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diff = now - d;
+    const d = new Date(pubDate);
+    const diff = Date.now() - d;
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
     if (mins < 60) return `Hace ${mins} min`;
     if (hours < 24) return `Hace ${hours}h`;
     if (days === 1) return 'Ayer';
-    if (days < 7) return `Hace ${days} días`;
+    if (days < 7) return `Hace ${days} dias`;
     return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
-  } catch { return dateStr; }
+  } catch { return 'Reciente'; }
 }
 
-function esReciente(dateStr) {
-  if (!dateStr) return false;
+function esReciente(pubDate) {
+  if (!pubDate) return false;
+  return Date.now() - new Date(pubDate) < 86400000 * 2;
+}
+
+function limpiarTitulo(t) { return t.replace(/ - [^-]+$/, '').trim(); }
+function extraerFuente(t, fallback) {
+  const m = t.match(/ - ([^-]+)$/);
+  return m ? m[1].trim() : fallback;
+}
+
+async function fetchRSS(rssUrl) {
+  const url = RSS2JSON + encodeURIComponent(rssUrl) + '&count=10';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const diff = new Date() - new Date(dateStr);
-    return diff < 86400000 * 2; // menos de 48h
-  } catch { return false; }
-}
-
-function extraerFuente(title, sourceLabel) {
-  // Google News incluye " - Fuente" al final del título
-  const match = title.match(/ - ([^-]+)$/);
-  return match ? match[1].trim() : sourceLabel;
-}
-
-function limpiarTitulo(title) {
-  return title.replace(/ - [^-]+$/, '').trim();
-}
-
-async function fetchFeedItems(sourceObj) {
-  // Intenta cada proxy en orden hasta conseguir respuesta
-  for (const buildProxy of RSS_PROXIES) {
-    const proxyUrl = buildProxy(sourceObj.url);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(proxyUrl, { signal: controller.signal });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      // allorigins devuelve {contents}, codetabs devuelve el texto directo
-      const xmlText = data.contents ?? (typeof data === 'string' ? data : null);
-      if (!xmlText) throw new Error('Sin contenido');
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(xmlText, 'text/xml');
-      if (xml.querySelector('parsererror')) throw new Error('XML invalido');
-      const items = [...xml.querySelectorAll('item')];
-      if (!items.length) throw new Error('Sin items');
-      return items.map(item => {
-        const rawTitle = item.querySelector('title')?.textContent?.trim() || 'Sin titulo';
-        const pubDate = item.querySelector('pubDate')?.textContent;
-        return {
-          titulo: limpiarTitulo(rawTitle),
-          fuente: extraerFuente(rawTitle, sourceObj.label),
-          descripcion: item.querySelector('description')?.textContent?.replace(/<[^>]*>/g, '').trim().slice(0, 130) + '...' || '',
-          link: item.querySelector('link')?.textContent?.trim() || '#',
-          fecha: formatearFechaRSS(pubDate),
-          pubDate: pubDate ? new Date(pubDate) : new Date(0),
-          reciente: esReciente(pubDate),
-          categoria: categorizarNoticia(rawTitle)
-        };
-      });
-    } catch(e) {
-      clearTimeout(timer);
-      console.warn('Feed proxy failed:', sourceObj.label, e.message);
-    }
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.items?.length) throw new Error('No items');
+    return data.items.map(item => ({
+      titulo: limpiarTitulo(item.title || 'Sin titulo'),
+      fuente: extraerFuente(item.title || '', data.feed?.title || 'Google News'),
+      descripcion: (item.description || '').replace(/<[^>]*>/g, '').trim().slice(0, 130) + '...',
+      link: item.link || '#',
+      fecha: formatFecha(item.pubDate),
+      pubDate: item.pubDate ? new Date(item.pubDate) : new Date(0),
+      reciente: esReciente(item.pubDate),
+      categoria: categorizarNoticia(item.title || '')
+    }));
+  } catch(e) {
+    clearTimeout(timer);
+    console.warn('RSS fetch failed:', rssUrl, e.message);
+    return [];
   }
-  return [];
 }
 
 async function loadTab(tab) {
   const body = document.getElementById('newsBody');
-  body.innerHTML = `<div class="news-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:12px"><div class="news-spinner"></div><div style="font-size:13px;color:var(--muted)">Buscando noticias frescas…</div></div>`;
+  body.innerHTML = `<div class="news-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:12px"><div class="news-spinner"></div><div style="font-size:13px;color:var(--muted)">Buscando noticias frescas...</div></div>`;
 
-  const sources = NEWS_SOURCES[tab];
-  // Cargar todos en paralelo — cada uno ya maneja su propio error y retorna []
-  const results = await Promise.all(sources.map(s => fetchFeedItems(s)));
+  const urls = NEWS_SOURCES[tab] || [];
+  const results = await Promise.all(urls.map(u => fetchRSS(u)));
 
+  const seen = new Set();
   let all = [];
   results.forEach(r => all.push(...r));
-
-  // Deduplicar por título y ordenar por fecha (más reciente primero)
-  const seen = new Set();
   all = all
     .filter(n => {
       const key = n.titulo.slice(0, 40).toLowerCase();
@@ -2289,29 +2253,13 @@ async function loadTab(tab) {
     .slice(0, 12);
 
   if (!all.length) {
-    // Si es "otras" y no cargó nada, ocultar el tab y volver a UPN
-    if (tab === 'otras') {
-      const tabBtn = document.getElementById('tabOtras');
-      if (tabBtn) tabBtn.style.display = 'none';
-      // Volver a UPN si estamos en otras
-      if (currentNewsTab === 'otras') {
-        const upnBtn = document.querySelector('.news-tab');
-        if (upnBtn) { upnBtn.click(); }
-      }
-      return;
-    }
     body.innerHTML = `
       <div class="news-error">
         <div class="err-ico">😕</div>
-        <div>No se encontraron noticias para este tab.<br>Intenta de nuevo en unos segundos.</div>
+        <div>No se encontraron noticias.<br>Intenta de nuevo en unos segundos.</div>
         <button class="news-retry" onclick="delete newsCache['${tab}'];loadTab('${tab}')">🔄 Reintentar</button>
       </div>`;
     return;
-  }
-  // Si otras cargó bien, asegurarse de que el tab sea visible
-  if (tab === 'otras') {
-    const tabBtn = document.getElementById('tabOtras');
-    if (tabBtn) tabBtn.style.display = '';
   }
 
   const now = new Date();
@@ -2319,7 +2267,7 @@ async function loadTab(tab) {
   if (sub) sub.textContent = `Actualizado ${now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})} · ${all.length} noticias`;
 
   body.innerHTML = all.map(n => `
-    <div class="news-card" onclick="window.open('${n.link}','_blank')">
+    <div class="news-card" onclick="window.open('${n.link.replace(/'/g,"\\'")}','_blank')">
       <div class="news-card-source-dot" style="background:${TAB_COLORS[tab]||'#F5B800'}"></div>
       <div class="news-card-body">
         <div class="news-card-meta">
