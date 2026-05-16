@@ -1157,6 +1157,8 @@ select.pf-input{cursor:pointer}
         <canvas id="imgCanvas"></canvas>
         <div class="img-controls" id="imgControls">
           <button type="button" class="img-ctrl-btn img-ctrl-fit" onclick="toggleFit()" title="Ajustar/llenar">⤢</button>
+          <button type="button" class="img-ctrl-btn" onclick="zoomImg(-0.1)" title="Alejar" style="background:rgba(0,0,0,0.55);color:#fff;font-size:15px;font-weight:700">−</button>
+          <button type="button" class="img-ctrl-btn" onclick="zoomImg(0.1)" title="Acercar" style="background:rgba(0,0,0,0.55);color:#fff;font-size:15px;font-weight:700">+</button>
           <button type="button" class="img-ctrl-btn img-ctrl-del" onclick="removeImg()" title="Eliminar imagen">✕</button>
         </div>
         <div class="img-drag-hint" id="imgDragHint">Arrastra para reencuadrar</div>
@@ -1302,6 +1304,8 @@ select.pf-input{cursor:pointer}
         <canvas id="editImgCanvas"></canvas>
         <div class="img-controls" id="editImgControls">
           <button type="button" class="img-ctrl-btn img-ctrl-fit" onclick="editToggleFit()" title="Ajustar/llenar">⤢</button>
+          <button type="button" class="img-ctrl-btn" onclick="editZoomImg(-0.1)" title="Alejar" style="background:rgba(0,0,0,0.55);color:#fff;font-size:15px;font-weight:700">−</button>
+          <button type="button" class="img-ctrl-btn" onclick="editZoomImg(0.1)" title="Acercar" style="background:rgba(0,0,0,0.55);color:#fff;font-size:15px;font-weight:700">+</button>
           <button type="button" class="img-ctrl-btn img-ctrl-del" onclick="editRemoveImg()" title="Eliminar imagen">✕</button>
         </div>
         <div class="img-drag-hint" id="editImgDragHint">Arrastra para reencuadrar</div>
@@ -2384,6 +2388,21 @@ function toggleFit() {
   drawCanvas();
 }
 
+function zoomImg(delta) {
+  if (!_img) return;
+  const canvas = document.getElementById('imgCanvas');
+  const minScale = Math.min(canvas.width / _img.naturalWidth, canvas.height / _img.naturalHeight) * 0.5;
+  const maxScale = Math.max(canvas.width / _img.naturalWidth, canvas.height / _img.naturalHeight) * 4;
+  const newScale = Math.min(maxScale, Math.max(minScale, _imgScale + delta * _imgScale));
+  // Zoom centrado en el canvas
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  _imgOffX = cx - (cx - _imgOffX) * (newScale / _imgScale);
+  _imgOffY = cy - (cy - _imgOffY) * (newScale / _imgScale);
+  _imgScale = newScale;
+  drawCanvas();
+}
+
 function setupCanvasDrag(canvas) {
   // Remove old listeners by cloning, preserving the id
   const newCanvas = canvas.cloneNode(true);
@@ -2684,6 +2703,22 @@ function editRemoveImg() {
 function editToggleFit() {
   if (!_editImgState) return;
   _editImgState.fitMode = !_editImgState.fitMode;
+  editDrawCanvas();
+}
+
+function editZoomImg(delta) {
+  if (!_editImgState) return;
+  const canvas = document.getElementById('editImgCanvas');
+  const { img } = _editImgState;
+  const minScale = Math.min(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight) * 0.5;
+  const maxScale = Math.max(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight) * 4;
+  const cur = _editImgState.scale;
+  const newScale = Math.min(maxScale, Math.max(minScale, cur + delta * cur));
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  _editImgState.offsetX = cx - (cx - _editImgState.offsetX) * (newScale / cur);
+  _editImgState.offsetY = cy - (cy - _editImgState.offsetY) * (newScale / cur);
+  _editImgState.scale = newScale;
   editDrawCanvas();
 }
 
