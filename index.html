@@ -141,14 +141,7 @@ onAuthStateChanged(auth, async user => {
     if (adminBtn) adminBtn.style.display = user.email === 'granpreciano@gmail.com' ? '' : 'none';
     initRealtimeListeners();
     showToast(`👋 Bienvenido, ${displayName}`);
-    // Verificar si tiene WA guardado; si no, pedirlo
-    try {
-      const ref = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
-      const snap = await ref.getDoc(ref.doc(db, 'users', user.uid));
-      if (!snap.exists() || !snap.data().wa) {
-        setTimeout(() => { if (window.showWAPrompt) window.showWAPrompt(user.uid); }, 1500);
-      }
-    } catch(e) { /* silencioso */ }
+    // WA prompt desactivado al login — se solicita solo al publicar
   } else {
     currentUser = null;
     document.getElementById('loginOverlay')?.classList.add('open');
@@ -2847,17 +2840,14 @@ Tu compra está registrada y protegida. Si tienes alguna duda o inconveniente, e
                        : stage === '6h'  ? `https://wa.me/${wa}?text=${msgVendedor6}`
                        : `https://wa.me/${wa}?text=${msgVendedor0}`;
 
-  if (wa && wa !== 'undefined') {
-    setTimeout(() => window.open(waVendedorLink, '_blank'), 800);
-  }
-
-  // ── Abrir WhatsApp al comprador en 6h y 0h ────────────────
-  if ((stage === '6h' || stage === '0h') && buyerWA) {
-    const waCompradorLink = stage === '6h'
-      ? `https://wa.me/${buyerWA}?text=${msgComprador6}`
-      : `https://wa.me/${buyerWA}?text=${msgComprador0}`;
-    setTimeout(() => window.open(waCompradorLink, '_blank'), 2000);
-  }
+  // Aviso automático desactivado — usar botón "Recordar" / "Avisar WA" manualmente
+  // if (wa && wa !== 'undefined') {
+  //   setTimeout(() => window.open(waVendedorLink, '_blank'), 800);
+  // }
+  // if ((stage === '6h' || stage === '0h') && buyerWA) {
+  //   const waCompradorLink = ...
+  //   setTimeout(() => window.open(waCompradorLink, '_blank'), 2000);
+  // }
 }
 
 // Iniciar ticker cada segundo para actualizar contadores
