@@ -1511,18 +1511,18 @@ const raffleTickets = []; // ← llenado desde Firestore
 const ratings = []; // ← llenado desde Firestore
 
 const costMap = {
-  libros:{label:'S/. 1.50',note:'Libros universitarios'},
-  tecnologia:{label:'S/. 3.00 – S/. 10.00',note:'Según valor del equipo'},
+  libros:{label:'S/. 1.00',note:'Libros universitarios'},
+  tecnologia:{label:'S/. 1.00',note:'Según valor del equipo'},
   apuntes:{label:'S/. 1.00',note:'Apuntes y resúmenes'},
-  comida:{label:'S/. 0.50 – S/. 2.00',note:'Según monto del pedido'},
-  servicios:{label:'S/. 1.00 – S/. 5.00',note:'Según tarifa del servicio'},
-  ropa:{label:'S/. 2.00',note:'Ropa y accesorios'},
+  comida:{label:'S/. 1.00',note:'Según monto del pedido'},
+  servicios:{label:'S/. 1.00',note:'Según tarifa del servicio'},
+  ropa:{label:'S/. 1.00',note:'Ropa y accesorios'},
   utiles:{label:'S/. 1.00',note:'Útiles y materiales'},
-  deporte:{label:'S/. 2.00',note:'Deporte y fitness'},
-  musica:{label:'S/. 2.00 – S/. 6.00',note:'Arte y música'},
-  gaming:{label:'S/. 4.00',note:'Entretenimiento / Gaming'},
-  salud:{label:'S/. 1.50',note:'Salud y bienestar'},
-  otros:{label:'S/. 1.00 – S/. 5.00',note:'Según precio declarado'},
+  deporte:{label:'S/. 1.00',note:'Deporte y fitness'},
+  musica:{label:'S/. 1.00',note:'Arte y música'},
+  gaming:{label:'S/. 1.00',note:'Entretenimiento / Gaming'},
+  salud:{label:'S/. 1.00',note:'Salud y bienestar'},
+  otros:{label:'S/. 1.00',note:'Según precio declarado'},
 };
 
 // ===== STATE =====
@@ -3191,7 +3191,7 @@ function sendWarnWA(i) {
   if (h <= 0) {
     // VENCIDO
     msgVendedor = encodeURIComponent(
-`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar la comisión de *${c.amount}* por *"${c.product}"* ha *vencido* ⛔.
+`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar la comisión de *S/. 1.00* por *"${c.product}"* ha *vencido* ⛔.
 Tu cuenta y publicaciones han sido *suspendidas temporalmente* en UniMarket.
 Para reactivarlas, realiza el pago a la brevedad:
 📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
@@ -3201,7 +3201,7 @@ En cuanto lo recibamos, coordinamos la reactivación de inmediato 💜 Estamos a
     // CRÍTICO — menos de 6h, mención de posible suspensión
     msgVendedor = encodeURIComponent(
 `Hola ${c.seller} 🙏 Te contactamos urgente desde *UniMarket*.
-*⚠️ Solo te quedan ${hText}* para pagar tu comisión de *${c.amount}* por *"${c.product}"*.
+*⚠️ Solo te quedan ${hText}* para pagar tu comisión de *S/. 1.00* por *"${c.product}"*.
 Si el pago no se acredita antes de que venza el plazo, tu publicación y cuenta serán *suspendidas* en la plataforma.
 📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
 💬 Concepto: *Comisión UniMarket - ${c.product}*
@@ -3210,7 +3210,7 @@ En cuanto recibamos el pago, ¡todo queda reactivado de inmediato! 🚀 Gracias 
     // ADVERTENCIA — 6–12h, mención de posible suspensión
     msgVendedor = encodeURIComponent(
 `Hola ${c.seller} 😊 Te escribimos desde *UniMarket*.
-Recuerda que tienes pendiente el pago de tu comisión de *${c.amount}* por la venta de *"${c.product}"*.
+Recuerda que tienes pendiente el pago de tu comisión de *S/. 1.00* por la venta de *"${c.product}"*.
 ⏰ *Te quedan ${hText}* para realizarlo.
 Si no se acredita el pago a tiempo, tu cuenta podría ser *suspendida temporalmente* en la plataforma.
 📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
@@ -3220,7 +3220,7 @@ Si no se acredita el pago a tiempo, tu cuenta podría ser *suspendida temporalme
     // NORMAL — más de 12h, recordatorio amable con mención de suspensión
     msgVendedor = encodeURIComponent(
 `Hola ${c.seller} 😊 Te escribimos desde *UniMarket*.
-Recuerda que tienes pendiente el pago de tu comisión de *${c.amount}* por la venta de *"${c.product}"*.
+Recuerda que tienes pendiente el pago de tu comisión de *S/. 1.00* por la venta de *"${c.product}"*.
 ⏰ *Te quedan ${hText}* para realizarlo. Pasado ese plazo, tu cuenta podría ser *suspendida temporalmente*.
 📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
 💬 Concepto: *Comisión UniMarket - ${c.product}*
@@ -3266,7 +3266,7 @@ async function suspendAndDelete(i) {
   const wa = c.sellerWA;
   if (wa && wa !== 'undefined') {
     const msg = encodeURIComponent(
-`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar tu comisión de *${c.amount}* por *"${c.product}"* ha *vencido* ⛔.
+`Hola ${c.seller}, lamentablemente el plazo de 48 horas para pagar tu comisión de *S/. 1.00* por *"${c.product}"* ha *vencido* ⛔.
 Tu publicación ha sido *retirada del marketplace* y tu cuenta ha sido *suspendida temporalmente*.
 Si deseas reactivarla, realiza el pago pendiente:
 📱 Yapea o plinea a: *973 793 230* (Bryan Quintero)
@@ -3290,7 +3290,7 @@ function contactSellerWA(i) {
   const msg = encodeURIComponent(
 `🎉 ¡Felicitaciones por tu venta en UniMarket!
 Tu producto "${comm.product}" acaba de ser confirmado como vendido. 🛍️
-Para mantener tu cuenta activa y seguir vendiendo, recuerda pagar la comisión simbólica de ${comm.amount} en las próximas 48 horas a:
+Para mantener tu cuenta activa y seguir vendiendo, recuerda pagar la comisión simbólica de *S/. 1.00* en las próximas 48 horas a:
 📱 Yape / Plin: 973 793 230
 👤 Bryan Quintero
 Escribe en el concepto: Comisión UniMarket - ${comm.product}
