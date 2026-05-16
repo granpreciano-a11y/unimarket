@@ -403,6 +403,39 @@ window.dispatchEvent(new Event('dbReady'));
   </div>
 </div>
 
+<!-- ============ NOTICIAS UPN MODAL ============ -->
+<div class="news-overlay" id="newsOverlay" onclick="if(event.target===this)closeNews()">
+  <div class="news-box">
+    <div class="news-head">
+      <div>
+        <div class="news-head-title">🎓 Noticias Universitarias</div>
+        <div class="news-head-sub" id="newsLastUpdate">Cargando noticias frescas…</div>
+      </div>
+      <button class="news-close" onclick="closeNews()">✕</button>
+    </div>
+    <!-- TABS -->
+    <div class="news-tabs-wrap">
+      <div class="news-tabs" id="newsTabs">
+        <button class="news-tab active" onclick="switchTab('upn',this)">🎓 UPN</button>
+        <button class="news-tab" onclick="switchTab('sanmarcos',this)">🏛️ San Marcos</button>
+        <button class="news-tab" onclick="switchTab('pucp',this)">✝️ PUCP</button>
+        <button class="news-tab" onclick="switchTab('upc',this)">💻 UPC</button>
+        <button class="news-tab" id="tabOtras" onclick="switchTab('otras',this)">🏫 Otras Unis</button>
+        <button class="news-tab" onclick="switchTab('peru',this)">🇵🇪 Perú Hoy</button>
+      </div>
+    </div>
+    <div class="news-body" id="newsBody">
+      <div class="news-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:12px">
+        <div class="news-spinner"></div>
+        <div style="font-size:13px;color:var(--muted)">Cargando noticias…</div>
+      </div>
+    </div>
+    <div class="news-footer">
+      Google News · El Comercio · RPP · Gestión · <a href="https://www.upn.edu.pe" target="_blank">UPN</a> · PUCP · San Marcos
+    </div>
+  </div>
+</div>
+
 <!-- Auth directo — expone funciones al scope global sin depender de window.DB -->
 <script type="module">
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -477,6 +510,45 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 .btn-primary{background:var(--upn-yellow);color:var(--upn-black);border:none;border-radius:10px;padding:10px 20px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;transition:transform .15s,box-shadow .15s}
 .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(245,184,0,0.4)}
 .btn-outline{background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 20px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer}
+.btn-news{background:rgba(0,0,0,0.18);border-color:rgba(255,255,255,0.35);font-weight:700}
+.btn-news:hover{background:rgba(0,0,0,0.28)}
+
+/* ── NOTICIAS UPN MODAL ── */
+.news-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;display:none;align-items:center;justify-content:center;padding:16px}
+.news-overlay.open{display:flex}
+.news-box{background:#fff;border-radius:18px;width:100%;max-width:480px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.25);overflow:hidden}
+.news-head{background:var(--upn-yellow);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #D4A000;flex-shrink:0}
+.news-head-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;color:var(--upn-black)}
+.news-head-sub{font-size:10px;color:var(--upn-black);opacity:0.65;margin-top:2px}
+.news-close{background:rgba(0,0,0,0.1);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.news-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);background:#fafafa;overflow-x:auto;scrollbar-width:none;flex-shrink:0;min-height:40px}
+.news-tabs::-webkit-scrollbar{display:none}
+.news-tab{border:none;background:none;padding:10px 13px;font-family:'Plus Jakarta Sans',sans-serif;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;flex-shrink:0}
+.news-tab.active{color:var(--upn-black);border-bottom-color:var(--upn-yellow);background:#fff;font-weight:700}
+.news-tab:hover:not(.active){color:var(--ink);background:rgba(0,0,0,0.03)}
+.news-tabs-wrap{position:relative;flex-shrink:0}
+.news-tabs-wrap::after{content:'›';position:absolute;right:0;top:0;bottom:0;width:28px;background:linear-gradient(to right,transparent,#fafafa 60%);display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:16px;color:var(--muted);pointer-events:none;border-bottom:2px solid var(--border)}
+.news-body{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px;min-height:0}
+.news-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:12px;color:var(--muted)}
+.news-spinner{width:36px;height:36px;border:3px solid #eee;border-top-color:var(--upn-yellow);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.news-card{border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:10px;transition:transform .15s,box-shadow .15s;cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+.news-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,0.09)}
+.news-card-source-dot{width:8px;height:8px;border-radius:50%;background:var(--upn-yellow);flex-shrink:0;margin-top:5px}
+.news-card-body{flex:1;min-width:0}
+.news-card-meta{display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap}
+.news-card-tag{display:inline-block;background:var(--amber-bg);color:#7a5800;font-size:9px;font-weight:700;border-radius:5px;padding:1px 7px;text-transform:uppercase;letter-spacing:.5px}
+.news-card-src{font-size:9px;color:var(--muted);font-weight:600}
+.news-card-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--ink);line-height:1.35;margin-bottom:3px}
+.news-card-desc{font-size:11px;color:var(--muted);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.news-card-date{font-size:10px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:3px}
+.news-card-new{display:inline-block;background:#E03A2A;color:#fff;font-size:8px;font-weight:800;border-radius:4px;padding:1px 5px;margin-left:4px;letter-spacing:.3px}
+.news-footer{padding:10px 16px;border-top:1px solid var(--border);text-align:center;font-size:10px;color:var(--muted);line-height:1.6}
+.news-footer a{color:var(--upn-black);font-weight:700;text-decoration:none}
+.news-error{text-align:center;padding:32px 16px;color:var(--muted)}
+.news-error .err-ico{font-size:36px;margin-bottom:10px}
+.news-retry{background:var(--upn-yellow);border:none;border-radius:8px;padding:8px 20px;font-weight:700;cursor:pointer;margin-top:12px}
+.news-section-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin:12px 0 6px;padding-left:2px}
 
 /* RAFFLE BANNER */
 .raffle-banner{margin:20px 20px 0;background:#2C3E60;border:1.5px solid #F4B400;border-radius:var(--r);padding:16px 20px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden}
@@ -514,6 +586,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 /* PRODUCT GRID */
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1px;background:var(--border);margin:0 20px;border-radius:var(--r);overflow:hidden}
 .pcard{background:var(--white);padding:14px;cursor:pointer;position:relative;transition:background .15s}
+.pcard-cat{position:absolute;bottom:8px;right:8px;font-size:9.5px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:2px 6px;pointer-events:none;white-space:nowrap}
 .pcard:hover{background:#FAFAFE}
 .pcard-plan{position:absolute;top:8px;right:8px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px}
 .pcard-edit-btn{position:absolute;top:8px;left:8px;background:rgba(255,255,255,0.92);border:1px solid var(--border);border-radius:7px;font-size:13px;line-height:1;padding:4px 6px;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.10);transition:transform .15s}.pcard-del-btn{position:absolute;top:8px;left:42px;background:rgba(255,255,255,0.92);border:1px solid rgba(220,50,50,0.35);border-radius:7px;font-size:13px;line-height:1;padding:4px 6px;cursor:pointer;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,0.10);transition:transform .15s}.pcard-del-btn:hover{transform:scale(1.12);background:rgba(255,220,220,0.95)}
@@ -828,6 +901,7 @@ select.pf-input{cursor:pointer}
     <div class="hero-actions">
       <button class="btn-primary" onclick="openPublish()">+ Publicar producto</button>
       <button class="btn-outline" onclick="openMyPubs()">Ver mis publicaciones</button>
+      <button class="btn-outline btn-news" onclick="openNews()">🎓 Noticias UPN</button>
     </div>
   </div>
 
@@ -2028,6 +2102,7 @@ function renderProducts() {
     const mp = raw >= priceMin && raw <= priceMax;
     return mc && mq && mp;
   });
+  list.sort((a, b) => (b.img ? 1 : 0) - (a.img ? 1 : 0));
   const grid = document.getElementById('pgrid');
   if (!list.length) { grid.innerHTML = '<div class="pgrid-empty">😕 No hay productos en esta categoría.</div>'; return; }
   grid.innerHTML = list.map(p => {
@@ -2049,8 +2124,240 @@ function renderProducts() {
         const seedStars = p.stars || 5.0;
         return `${'★'.repeat(Math.floor(seedStars))}<span style="color:var(--muted);font-size:10px"> ${seedStars}</span>`;
       })()}</div>
+      <span class="pcard-cat">${({libros:'📘 Libros',tecnologia:'💻 Tecnología',apuntes:'📝 Apuntes',comida:'🍱 Comida',servicios:'🎨 Servicios',ropa:'👕 Ropa',utiles:'🖊️ Útiles',deporte:'🏋️ Deporte',musica:'🎵 Arte',gaming:'🎮 Gaming',salud:'🌿 Salud',mascotas:'🐾 Mascotas',otros:'🛠️ Otros'})[p.cat] || '📦 Otro'}</span>
     </div>`;
   }).join('');
+}
+
+// ===== NOTICIAS UNIVERSITARIAS — Sistema multi-tab =====
+let newsLoaded = false;
+let currentNewsTab = 'upn';
+const newsCache = {};
+
+const TAB_COLORS = {
+  upn: '#F5B800', sanmarcos: '#8B0000', pucp: '#003087',
+  upc: '#00529B', otras: '#2DB86A', peru: '#E03A2A'
+};
+
+// Proxies de fallback — se prueban en orden hasta que uno responda
+const RSS_PROXIES = [
+  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+];
+
+const NEWS_SOURCES = {
+  upn: [
+    { url: 'https://news.google.com/rss/search?q=UPN+Universidad+Privada+Norte+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
+    { url: 'https://news.google.com/rss/search?q=UPN+Lima+universidad+noticias&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
+    { url: 'https://news.google.com/rss/search?q=educacion+superior+Peru+revistas+academicas&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Revistas Edu' },
+    { url: 'https://news.google.com/rss/search?q=ciencia+investigacion+Peru+universitario+revista&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Revistas Ciencia' }
+  ],
+  sanmarcos: [
+    { url: 'https://news.google.com/rss/search?q=San+Marcos+universidad+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
+    { url: 'https://news.google.com/rss/search?q=UNMSM+toma+huelga+Lima&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' }
+  ],
+  pucp: [
+    { url: 'https://news.google.com/rss/search?q=PUCP+Universidad+Católica+Lima&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
+    { url: 'https://news.google.com/rss/search?q=Pontificia+Católica+Peru+noticias&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' }
+  ],
+  upc: [
+    { url: 'https://news.google.com/rss/search?q=UPC+universidad+Lima+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' },
+    { url: 'https://news.google.com/rss/search?q=Universidad+Peruana+Ciencias+Aplicadas&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Google News' }
+  ],
+  otras: [
+    { url: 'https://news.google.com/rss/search?q=Universidad+Lima+noticias&hl=es-419&gl=PE&ceid=PE:es-419', label: 'U. Lima' },
+    { url: 'https://news.google.com/rss/search?q=USIL+UTP+universidades+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'USIL/UTP' },
+    { url: 'https://news.google.com/rss/search?q=universidades+Peru+ranking+becas&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Rankings' }
+  ],
+  peru: [
+    { url: 'https://news.google.com/rss/search?q=Peru+noticias+hoy&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Perú' },
+    { url: 'https://news.google.com/rss/search?q=economia+empleo+Peru+hoy&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Economía' },
+    { url: 'https://news.google.com/rss/search?q=tecnologia+inteligencia+artificial+Peru&hl=es-419&gl=PE&ceid=PE:es-419', label: 'Tech' }
+  ]
+};
+
+function categorizarNoticia(titulo) {
+  const t = titulo.toLowerCase();
+  if (t.includes('beca') || t.includes('financ') || t.includes('descuento') || t.includes('bolsa')) return 'Becas';
+  if (t.includes('deport') || t.includes('olimp') || t.includes('campeona') || t.includes('futbol') || t.includes('fútbol')) return 'Deportes';
+  if (t.includes('cultur') || t.includes('arte') || t.includes('música') || t.includes('festival') || t.includes('teatro')) return 'Cultura';
+  if (t.includes('convenio') || t.includes('acuerdo') || t.includes('alianza') || t.includes('firma')) return 'Convenios';
+  if (t.includes('event') || t.includes('feria') || t.includes('taller') || t.includes('congreso') || t.includes('seminario')) return 'Eventos';
+  if (t.includes('econom') || t.includes('empleo') || t.includes('trabajo') || t.includes('empresa')) return 'Economía';
+  if (t.includes('ciencia') || t.includes('tecnolog') || t.includes('investig') || t.includes('innova')) return 'Ciencia';
+  return 'Académico';
+}
+
+function formatearFechaRSS(dateStr) {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = now - d;
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    if (mins < 60) return `Hace ${mins} min`;
+    if (hours < 24) return `Hace ${hours}h`;
+    if (days === 1) return 'Ayer';
+    if (days < 7) return `Hace ${days} días`;
+    return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+  } catch { return dateStr; }
+}
+
+function esReciente(dateStr) {
+  if (!dateStr) return false;
+  try {
+    const diff = new Date() - new Date(dateStr);
+    return diff < 86400000 * 2; // menos de 48h
+  } catch { return false; }
+}
+
+function extraerFuente(title, sourceLabel) {
+  // Google News incluye " - Fuente" al final del título
+  const match = title.match(/ - ([^-]+)$/);
+  return match ? match[1].trim() : sourceLabel;
+}
+
+function limpiarTitulo(title) {
+  return title.replace(/ - [^-]+$/, '').trim();
+}
+
+async function fetchFeedItems(sourceObj) {
+  // Intenta cada proxy en orden hasta conseguir respuesta
+  for (const buildProxy of RSS_PROXIES) {
+    const proxyUrl = buildProxy(sourceObj.url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      // allorigins devuelve {contents}, codetabs devuelve el texto directo
+      const xmlText = data.contents ?? (typeof data === 'string' ? data : null);
+      if (!xmlText) throw new Error('Sin contenido');
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(xmlText, 'text/xml');
+      if (xml.querySelector('parsererror')) throw new Error('XML invalido');
+      const items = [...xml.querySelectorAll('item')];
+      if (!items.length) throw new Error('Sin items');
+      return items.map(item => {
+        const rawTitle = item.querySelector('title')?.textContent?.trim() || 'Sin titulo';
+        const pubDate = item.querySelector('pubDate')?.textContent;
+        return {
+          titulo: limpiarTitulo(rawTitle),
+          fuente: extraerFuente(rawTitle, sourceObj.label),
+          descripcion: item.querySelector('description')?.textContent?.replace(/<[^>]*>/g, '').trim().slice(0, 130) + '...' || '',
+          link: item.querySelector('link')?.textContent?.trim() || '#',
+          fecha: formatearFechaRSS(pubDate),
+          pubDate: pubDate ? new Date(pubDate) : new Date(0),
+          reciente: esReciente(pubDate),
+          categoria: categorizarNoticia(rawTitle)
+        };
+      });
+    } catch(e) {
+      clearTimeout(timer);
+      console.warn('Feed proxy failed:', sourceObj.label, e.message);
+    }
+  }
+  return [];
+}
+
+async function loadTab(tab) {
+  const body = document.getElementById('newsBody');
+  body.innerHTML = `<div class="news-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:12px"><div class="news-spinner"></div><div style="font-size:13px;color:var(--muted)">Buscando noticias frescas…</div></div>`;
+
+  const sources = NEWS_SOURCES[tab];
+  // Cargar todos en paralelo — cada uno ya maneja su propio error y retorna []
+  const results = await Promise.all(sources.map(s => fetchFeedItems(s)));
+
+  let all = [];
+  results.forEach(r => all.push(...r));
+
+  // Deduplicar por título y ordenar por fecha (más reciente primero)
+  const seen = new Set();
+  all = all
+    .filter(n => {
+      const key = n.titulo.slice(0, 40).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.pubDate - a.pubDate)
+    .slice(0, 12);
+
+  if (!all.length) {
+    // Si es "otras" y no cargó nada, ocultar el tab y volver a UPN
+    if (tab === 'otras') {
+      const tabBtn = document.getElementById('tabOtras');
+      if (tabBtn) tabBtn.style.display = 'none';
+      // Volver a UPN si estamos en otras
+      if (currentNewsTab === 'otras') {
+        const upnBtn = document.querySelector('.news-tab');
+        if (upnBtn) { upnBtn.click(); }
+      }
+      return;
+    }
+    body.innerHTML = `
+      <div class="news-error">
+        <div class="err-ico">😕</div>
+        <div>No se encontraron noticias para este tab.<br>Intenta de nuevo en unos segundos.</div>
+        <button class="news-retry" onclick="delete newsCache['${tab}'];loadTab('${tab}')">🔄 Reintentar</button>
+      </div>`;
+    return;
+  }
+  // Si otras cargó bien, asegurarse de que el tab sea visible
+  if (tab === 'otras') {
+    const tabBtn = document.getElementById('tabOtras');
+    if (tabBtn) tabBtn.style.display = '';
+  }
+
+  const now = new Date();
+  const sub = document.getElementById('newsLastUpdate');
+  if (sub) sub.textContent = `Actualizado ${now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})} · ${all.length} noticias`;
+
+  body.innerHTML = all.map(n => `
+    <div class="news-card" onclick="window.open('${n.link}','_blank')">
+      <div class="news-card-source-dot" style="background:${TAB_COLORS[tab]||'#F5B800'}"></div>
+      <div class="news-card-body">
+        <div class="news-card-meta">
+          <span class="news-card-tag">${n.categoria}</span>
+          <span class="news-card-src">· ${n.fuente}</span>
+          ${n.reciente ? '<span class="news-card-new">NUEVO</span>' : ''}
+        </div>
+        <div class="news-card-title">${n.titulo}</div>
+        <div class="news-card-desc">${n.descripcion}</div>
+        <div class="news-card-date">🕐 ${n.fecha}</div>
+      </div>
+    </div>
+  `).join('');
+
+  newsCache[tab] = body.innerHTML;
+}
+
+function switchTab(tab, btn) {
+  currentNewsTab = tab;
+  document.querySelectorAll('.news-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  if (newsCache[tab]) {
+    document.getElementById('newsBody').innerHTML = newsCache[tab];
+  } else {
+    loadTab(tab);
+  }
+}
+
+function openNews() {
+  document.getElementById('newsOverlay').classList.add('open');
+  if (!newsLoaded) {
+    newsLoaded = true;
+    loadTab('upn');
+  }
+}
+
+function closeNews() {
+  document.getElementById('newsOverlay').classList.remove('open');
 }
 
 function openMyPubs() {
@@ -2091,13 +2398,13 @@ function openConfirm(id) {
     <div style="font-size:28px">${selectedProduct.emoji}</div>
     <div>
       <div style="font-size:14px;font-weight:600">${selectedProduct.title}</div>
-      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:800;color:var(--purple);font-style:normal;font-variant-numeric:tabular-nums">${selectedProduct.price}</div>
+      <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:16px;font-weight:800;color:var(--ink);font-style:normal;font-variant-numeric:tabular-nums">${selectedProduct.price}</div>
       <div style="font-size:11px;color:var(--muted)">${selectedProduct.seller} · ${selectedProduct.faculty}</div>
       <div style="margin-top:4px">${(() => {
         const r = getSellerRating(selectedProduct.seller);
         if (r) return starsHtml(r.avg, r.count, 'lg');
         const s = selectedProduct.stars || 5.0;
-        return `${'★'.repeat(Math.floor(s))}<span style="color:var(--muted);font-size:11px"> ${s} (sin reseñas aún)</span>`;
+        return `<span style="color:#FFB800">${'★'.repeat(Math.floor(s))}</span><span style="color:var(--muted);font-size:11px"> ${s} (sin reseñas aún)</span>`;
       })()}</div>
       ${selectedProduct.desc ? `<div style="margin-top:10px;font-size:12.5px;color:var(--ink2);line-height:1.55;background:var(--bg);border-radius:8px;padding:9px 11px;border:1px solid var(--border)">${selectedProduct.desc}</div>` : ''}
     </div>
