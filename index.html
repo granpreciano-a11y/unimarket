@@ -2,7 +2,19 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" id="viewportMeta">
+<script>
+  // Fuerza vista de escritorio en celulares (mismo efecto que "Sitio de escritorio")
+  (function () {
+    var DESKTOP_WIDTH = 1200; // ancho virtual que verá la página
+    var isSmallScreen = Math.min(window.innerWidth, window.screen.width) < 900;
+    if (isSmallScreen) {
+      var scale = window.innerWidth / DESKTOP_WIDTH;
+      var vp = document.getElementById('viewportMeta');
+      vp.setAttribute('content', 'width=' + DESKTOP_WIDTH + ', initial-scale=' + scale + ', minimum-scale=' + scale + ', user-scalable=yes');
+    }
+  })();
+</script>
 <title>UniMarket</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
 <!-- Firebase SDK -->
