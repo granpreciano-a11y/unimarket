@@ -2,8 +2,20 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=1200">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" id="viewportMeta">
 <title>UniMarket</title>
+<script>
+  // Aplica al instante (antes de pintar) el modo "escritorio" si el usuario
+  // lo activó anteriormente, para que no tenga que volver a pulsarlo cada vez.
+  (function(){
+    try{
+      if (localStorage.getItem('unimarket_desktop_mode') === '1') {
+        var m = document.getElementById('viewportMeta');
+        if (m) m.setAttribute('content','width=1024');
+      }
+    }catch(e){}
+  })();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
 <!-- Firebase SDK -->
 <script type="module">
@@ -873,6 +885,10 @@ select.pf-input{cursor:pointer}
 </head>
 <body>
 
+<!-- Botón flotante: alternar vista de escritorio (siempre visible, también ya logueado) -->
+<button id="desktopModeFab" onclick="toggleDesktopMode()" title="Cambiar entre vista móvil y de escritorio"
+  style="position:fixed;right:14px;bottom:14px;z-index:9999;width:44px;height:44px;border-radius:50%;border:none;background:var(--purple);color:#111;font-size:20px;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center">🖥️</button>
+
 <!-- NAV -->
 <nav class="nav">
   <div class="nav-logo"><span class="logo-uni">Uni</span><span class="logo-dot"></span><span class="logo-market">Market</span></div>
@@ -1469,6 +1485,12 @@ select.pf-input{cursor:pointer}
   <div class="modal" style="max-width:380px">
     <h3 id="loginTitle">🎓 Bienvenido a UniMarket</h3>
     <p style="font-size:13px;color:var(--muted);margin:6px 0 18px">Solo estudiantes UPN. Ingresa con tu correo <strong>@upn.pe</strong> o tu Gmail.</p>
+
+    <!-- Botón: mejor experiencia (activa vista de escritorio en el navegador móvil) -->
+    <button id="btnDesktopMode" onclick="toggleDesktopMode()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;border:1.5px dashed var(--purple);border-radius:10px;background:var(--purple-bg);font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;font-weight:700;color:#8a6d00;cursor:pointer;margin-bottom:14px">
+      <span id="btnDesktopModeIcon">🖥️</span>
+      <span id="btnDesktopModeText">Mejor experiencia (vista de escritorio)</span>
+    </button>
 
     <!-- Google button -->
     <button id="btnGoogle" onclick="doLoginGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:14px;transition:background .15s" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">
@@ -3755,6 +3777,35 @@ function formatDate(ts) {
   return date.toLocaleDateString('es-PE',{day:'2-digit',month:'short'}) + ' ' + date.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
 }
 
+// ===== MODO ESCRITORIO EN MÓVIL =====
+// Muchos usuarios no saben activar "Sitio de escritorio" desde el menú del
+// navegador. Este botón logra el mismo efecto: le dice al navegador que
+// renderice la página como si la pantalla fuera de 1024px de ancho, con lo
+// cual el layout de grillas/columnas se ve igual que en escritorio.
+function isDesktopModeOn() {
+  try { return localStorage.getItem('unimarket_desktop_mode') === '1'; }
+  catch(e) { return false; }
+}
+
+function applyDesktopModeUI() {
+  const on = isDesktopModeOn();
+  const icon = document.getElementById('btnDesktopModeIcon');
+  const text = document.getElementById('btnDesktopModeText');
+  if (icon) icon.textContent = on ? '📱' : '🖥️';
+  if (text) text.textContent = on ? 'Volver a vista móvil' : 'Mejor experiencia (vista de escritorio)';
+  const fab = document.getElementById('desktopModeFab');
+  if (fab) fab.textContent = on ? '📱' : '🖥️';
+}
+
+function toggleDesktopMode() {
+  const meta = document.getElementById('viewportMeta');
+  const turningOn = !isDesktopModeOn();
+  try { localStorage.setItem('unimarket_desktop_mode', turningOn ? '1' : '0'); } catch(e) {}
+  if (meta) meta.setAttribute('content', turningOn ? 'width=1024' : 'width=device-width, initial-scale=1.0');
+  applyDesktopModeUI();
+  showToast(turningOn ? '🖥️ Vista de escritorio activada' : '📱 Vista móvil activada');
+}
+
 // ===== TOAST =====
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -3791,6 +3842,7 @@ async function seedIfEmpty() {
 
 // Esperar a que Firebase Auth esté listo antes de intentar seedear
 document.addEventListener('DOMContentLoaded', () => {
+  applyDesktopModeUI();
   // Mostrar productos locales mientras carga (UX)
   renderProducts();
   renderAdminTables();
