@@ -881,6 +881,10 @@ select.pf-input{cursor:pointer}
   .kpis{grid-template-columns:1fr 1fr}
   .ra-grid{grid-template-columns:1fr 1fr}
 }
+@keyframes hintBounce{
+  0%,100%{transform:translate(0,0) rotate(-8deg)}
+  50%{transform:translate(-3px,4px) rotate(-8deg)}
+}
 </style>
 </head>
 <body>
@@ -917,6 +921,12 @@ select.pf-input{cursor:pointer}
       <button class="btn-primary" onclick="openPublish()">+ Publicar producto</button>
       <button class="btn-outline" onclick="openMyPubs()">Ver mis publicaciones</button>
       <button class="btn-outline btn-news" onclick="openNews()">🎓 Noticias UPN</button>
+      <div style="position:relative;display:inline-block">
+        <button class="btn-outline" onclick="toggleDesktopMode()" style="border-color:var(--purple);color:var(--purple)">
+          <span class="desktopModeIcon">🖥️</span> <span class="desktopModeText">Mejor experiencia</span>
+        </button>
+        <span class="desktopModeHint" style="position:absolute;top:2px;right:2px;font-size:14px;pointer-events:none;animation:hintBounce 1.2s infinite;transform-origin:70% 30%">👆</span>
+      </div>
     </div>
   </div>
 
@@ -1487,10 +1497,13 @@ select.pf-input{cursor:pointer}
     <p style="font-size:13px;color:var(--muted);margin:6px 0 18px">Solo estudiantes UPN. Ingresa con tu correo <strong>@upn.pe</strong> o tu Gmail.</p>
 
     <!-- Botón: mejor experiencia (activa vista de escritorio en el navegador móvil) -->
-    <button id="btnDesktopMode" onclick="toggleDesktopMode()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;border:1.5px dashed var(--purple);border-radius:10px;background:var(--purple-bg);font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;font-weight:700;color:#8a6d00;cursor:pointer;margin-bottom:14px">
-      <span id="btnDesktopModeIcon">🖥️</span>
-      <span id="btnDesktopModeText">Mejor experiencia (vista de escritorio)</span>
-    </button>
+    <div style="position:relative;margin-bottom:14px">
+      <button id="btnDesktopMode" onclick="toggleDesktopMode()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;border:1.5px dashed var(--purple);border-radius:10px;background:var(--purple-bg);font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;font-weight:700;color:#8a6d00;cursor:pointer">
+        <span class="desktopModeIcon">🖥️</span>
+        <span class="desktopModeText">Mejor experiencia (vista de escritorio)</span>
+      </button>
+      <span class="desktopModeHint" style="position:absolute;top:4px;right:6px;font-size:15px;pointer-events:none;animation:hintBounce 1.2s infinite;transform-origin:70% 30%">👆</span>
+    </div>
 
     <!-- Google button -->
     <button id="btnGoogle" onclick="doLoginGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:14px;transition:background .15s" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">
@@ -3789,10 +3802,9 @@ function isDesktopModeOn() {
 
 function applyDesktopModeUI() {
   const on = isDesktopModeOn();
-  const icon = document.getElementById('btnDesktopModeIcon');
-  const text = document.getElementById('btnDesktopModeText');
-  if (icon) icon.textContent = on ? '📱' : '🖥️';
-  if (text) text.textContent = on ? 'Volver a vista móvil' : 'Mejor experiencia (vista de escritorio)';
+  document.querySelectorAll('.desktopModeIcon').forEach(el => el.textContent = on ? '📱' : '🖥️');
+  document.querySelectorAll('.desktopModeText').forEach(el => el.textContent = on ? 'Volver a vista móvil' : 'Mejor experiencia');
+  document.querySelectorAll('.desktopModeHint').forEach(el => el.style.display = on ? 'none' : 'inline-block');
   const fab = document.getElementById('desktopModeFab');
   if (fab) fab.textContent = on ? '📱' : '🖥️';
 }
